@@ -1,0 +1,450 @@
+# =============================================================================
+# WardenNet Agent 完整配置示例
+# 复制为 /etc/wardennet/config.yaml 后修改使用。
+# 所有字段未声明时使用代码内置默认值（见各段注释说明）。
+# =============================================================================
+#
+# === 架构概览 ===
+#
+# Agent 是本地基线自学习检测引擎，直接处理 Nginx/Apache/Tomcat 等日志，
+# 在本地完成威胁判定 + ipset 封锁，不依赖云端也能独立工作。
+#
+# 评分体系：基线自学习偏差评分（8 维相对特征基于 P95 偏差 + 3 维绝对特征固定权重）
+#   - 相对特征（8 维）：引擎自动学习各维度的 P95 分布，计算偏离倍数
+#   - 绝对特征（3 维固定权重）：dangerous_pattern=5, dangerous_method=3, file_upload=20
+#   - 灵敏度分档：high(偏离 2x) / medium(5x) / low(10x)，大幅降低参数调优成本
+#   - 配置参数从 45 个降到 7 个
+#
+# 防误杀机制（8 层防御）：
+#   1. 空 Referer 硬上限：score_high/4（25分），始终生效
+#   2. 401 单独降权：权重降为 1/5 + score_high/4 硬上限
+#   3. 已知 HTTP 客户端 UA 白名单：okhttp 等 14 种不判定为 Bot
+#   4. 敏感路径状态码关联：仅统计 status >= 400 的请求
+#   5. 路径段精确匹配：env 不匹配 env.js，admin 不匹配 admin.js
+#   6. 危险攻击模式解码检测：URL/Unicode/Hex/HTML entity 解码后匹配
+#   7. 真实用户奖励 + 本地 IP 白名单：双维度扣分 + 完全豁免
+#   8. 跳过路径列表：favicon/robots.txt 等浏览器常规行为完全不参与检测
+#
+# 启动预扫描消除冷启动：
+#   Agent 启动时自动扫描 log_sources 配置的日志文件尾部最近 10 分钟数据，
+#   建立各维度的初始 P95 基线，避免刚上线时因基线为空导致误判。
+#
+# 观察者模式（report-only）：
+#   mode: report 时引擎只评分上报云端，不执行本地封禁。
+#   适合上线初期安全过渡，观察评分分布后再切换到 block 模式。
+#
+# 三段式特征列表架构（known_http_clients / sensitive_paths / dangerous_patterns）：
+#   ① Builtin：程序内置默认值（DefaultKnownHTTPClients 等）
+#   ② Local：用户 YAML 配置（local + excludes）
+#   ③ Cloud：云端威胁情报（FeatureManager 异步拉取）
+#   合并规则：Builtin + Cloud + Local → 去重 → 应用 Excludes → 最终列表
+#
+# YAML 双格式支持（向后兼容）：
+#   格式一（简单列表）：known_http_clients: ["okhttp", "python-requests"]
+#   格式二（结构化）：
+#     known_http_clients:
+#       local: ["custom-client"]
+#       excludes: ["internal-api"]
+#       disable_builtin: false  # 禁用内置默认值（慎用）
+#       disable_cloud: false    # 禁用云端拉取
+#
+# =============================================================================
+
+# ===== Agent 基础参数 =====
+agent:
+  local_block_ttl: 3600   # 本地拉黑默认 TTL（秒，默认 3600 = 1 小时）
+  cloud_block_ttl: 7200   # 云端下发拉黑 TTL 上限（秒，默认 7200 = 2 小时）
+  cloud_max_ttl:   86400  # 云端下发等级最大 TTL 上限（秒，默认 86400 = 1 天）
+                          # Phase 2 起用于校验云端下发 TTL 不得超过此值
+
+# ===== 日志输出 =====
+log:
+  level: info              # 日志级别：debug / info / warn / error
+                           # debug 会输出每个请求的详细打分明细，生产环境建议 info
+  file:  ""                # 日志文件路径；空字符串表示仅输出到 stdout
+                           # 示例：/var/log/wardennet/agent.log
+  max_size:    100         # 单个日志文件最大 MB，超过后自动轮转
+  max_backups: 7           # 保留的旧日志文件数
+  max_age:     30          # 旧日志文件保留天数
+  compress:    true        # 是否压缩旧日志文件（gzip）
+
+# ===== 统计报告 =====
+stats:
+  report_interval: 60     # 统计报告间隔（秒）；0 表示禁用周期性统计报告
+                           # 每 60 秒输出一次各 IP 段累计统计摘要到日志
+
+# ===== 日志源采集配置 =====
+# 每个日志源独立配置，支持不同日志格式和上报策略。
+# allow_upload 控制证据是否上报云端：
+#   - nginx_access / apache_access / tomcat_access：默认 true
+#   - linux_auth：默认 false（数据最小化合规，仅在审计场景显式开启）
+# 支持自定义正则（custom_regex）和分组（regex_groups），用于非标准日志格式。
+log_sources:
+  # ---- Nginx Access Log ----
+  nginx_access:
+    path: /var/log/nginx/access.log    # Nginx access log 路径
+    parser: nginx_access               # 解析器类型（内置）
+    # allow_upload: true               # 显式允许上报（默认 true，可省略）
+
+  # ---- Apache Access Log ----
+  apache_access:
+    path: /var/log/apache2/access.log
+    parser: apache_access
+
+  # ---- Tomcat Access Log ----
+  tomcat_access:
+    path: /usr/local/tomcat/logs/localhost_access_log.txt
+    parser: tomcat_access
+
+  # ---- Linux Auth Log（SSH/登录审计）----
+  linux_auth:
+    path: /var/log/auth.log
+    parser: linux_auth
+    # allow_upload: false              # 默认不上报；审计场景可显式开启
+
+  # ---- 自定义日志源示例 ----
+  # 如果业务使用非标准日志格式，可配置 custom_regex + regex_groups：
+  # custom_app:
+  #   path: /var/log/myapp/access.log
+  #   parser: custom                   # 自定义解析器
+  #   # 正则需匹配完整日志行，各字段用捕获组提取
+  #   custom_regex: '^(\S+) - - \[([^\]]+)\] "(\S+) (\S+) \S+" (\d+) (\d+) "([^"]*)" "([^"]*)"'
+  #   regex_groups:
+  #     ip: 1                           # 客户端 IP
+  #     time: 2                         # 时间戳
+  #     request_method: 3               # HTTP 方法
+  #     request_path: 4                 # 请求路径
+  #     status: 5                       # 状态码
+  #     bytes: 6                        # 响应字节数
+  #     referer: 7                      # Referer 头
+  #     uagent: 8                       # User-Agent 头
+
+# ===== 基线自学习检测引擎 =====
+# 基线自学习引擎会自动学习各维度的 P95 分布，参数从 45 个降到 7 个
+# 启动时自动扫描 log_sources 配置的日志文件尾部最近 10 分钟数据建立初始基线，消除冷启动
+#
+# sensitivity 三档含义：
+#   high: 偏离 2x 即触发
+#   medium: 偏离 5x
+#   low: 偏离 10x
+#
+# mode: report 是观察者模式，适合上线初期安全过渡（只评分上报不封禁）
+detector:
+  enabled: true                          # 总开关；关闭后仍采集日志但不计分
+
+  # ---- 核心阈值 ----
+  score_high: 50                         # 触发本地拉黑候选的风险分阈值
+  score_medium: 30                       # 中等风险阈值（进入观察名单）
+  score_low: 15                          # 低风险阈值（仅统计记录）
+
+  # ---- 灵敏度分档 ----
+  # high: 偏离 2x 即触发，适合高风险业务
+  # medium: 偏离 5x，默认推荐
+  # low: 偏离 10x，适合宽松场景
+  sensitivity: medium
+
+  # ---- 运行模式 ----
+  # block: 正常封禁（达到 score_high 即执行 ipset 封锁）
+  # report: 观察者模式，只评分上报云端，不执行本地封禁
+  mode: block
+
+  # ---- 各维度绝对权重 ----
+  # 基线自学习引擎自动计算 8 维相对偏差分数（基于 P95 偏离倍数），
+  # 以下为 3 维绝对特征的固定权重：
+  weights:
+    dangerous_pattern: 5     # 危险攻击模式命中（SQL注入/XSS/路径遍历等）
+    dangerous_method: 3      # 危险 HTTP 方法（CONNECT/TRACE/DELETE/PUT/PATCH/OPTIONS）
+    file_upload: 20          # 危险文件上传（.php/.jsp/.phtml 等可执行文件）
+
+  # ---- 三档滑动窗口 ----
+  # 每档窗口独立统计，基线自学习引擎自动学习各维度的 P95 分布
+  # - 10s 窗口：捕捉突发扫描
+  # - 30s 窗口：捕捉持续扫描
+  # - 60s 窗口：捕捉慢速扫描
+  windows:
+    - size: 10
+    - size: 30
+    - size: 60
+
+  # ---- 三段式特征列表 ----
+  # 留空（或仅注释）则完全使用内置默认值。
+  # 内置默认值见 featurelist.go：
+  #   - known_http_clients: okhttp, python-requests, curl, wget, Go-http-client, ...
+  #   - sensitive_paths: admin, login, upload, download, .env, .git, backup, config, ...
+  #   - dangerous_patterns: select , union, <script, ../, ../../, 127.0.0.1, ...
+  #
+  # 格式一（简单列表，向后兼容）：
+  # known_http_clients: ["okhttp", "python-requests"]
+  #
+  # 格式二（结构化，推荐，支持排除项和云端控制）：
+  # known_http_clients:
+  #   local: ["custom-client"]          # 业务特有的 HTTP 客户端 UA
+  #   excludes: ["internal-probe"]     # 排除确实存在的业务 UA（不判定为 Bot）
+  #   disable_builtin: false            # 禁用内置默认值（慎用，会丢失所有默认条目）
+  #   disable_cloud: false              # 禁用云端拉取（调试用，生产建议 false）
+
+  known_http_clients:
+    # local: ["your-custom-http-client"]
+    # excludes: []
+    # disable_builtin: false
+    # disable_cloud: false
+
+  sensitive_paths:
+    # local: ["actuator", "swagger-ui", "your-custom-probe"]
+    # excludes: ["env", "admin"]          # 业务中确实需要访问的路径关键词
+    # disable_builtin: false
+    # disable_cloud: false
+
+  dangerous_patterns:
+    # local: ["select ", "<script", "../", "127.0.0.1"]
+    # excludes: ["../"]                  # 业务中确实存在的路径（如文件下载功能）
+    # disable_builtin: false
+    # disable_cloud: false
+
+  # ---- 跳过路径列表 ----
+  # 匹配的路径完全不参与检测（不计分、不拉黑），在 Process() 最前端直接跳过。
+  # 支持两种匹配模式（大小写不敏感，自动去除 query string）：
+  #   - 精确匹配："/favicon.ico" → 仅匹配该路径
+  #   - 前缀匹配："/.well-known/" → 匹配该前缀下所有子路径
+  # 默认值（代码内置）：
+  #   - /favicon.ico       浏览器自动请求网站图标
+  #   - /favicon.png      部分浏览器使用 png 格式图标
+  #   - /robots.txt        爬虫/搜索引擎自动请求
+  #   - /.well-known/      ACME/Let's Encrypt 等服务发现
+  #
+  # 留空（skip_paths: []）则使用上述默认值。
+  # 如需完全禁用跳过：skip_paths: ["__none__"]
+  # 如需追加自定义路径：取消注释并在列表中添加
+  #skip_paths:
+  #  - /favicon.ico
+  #  - /robots.txt
+  #  - /.well-known/
+  #  - /api/health                       # 健康检查端点
+  #  - /static/                          # 静态资源前缀
+  #  - /browser-specific-path            # 业务特有的浏览器探测路径
+
+  # ---- 请求体扫描 + 文件上传拦截（v1.0 新增，默认启用）----
+  # 扫描 POST 请求体中的 JSON/Form/XML 内容，检测 SQL 注入/XSS/XXE 等攻击，
+  # 同时拦截危险文件上传（.php/.jsp/.phtml/.phar 等）。
+  # 设计要点：
+  #   - 后端未配置 $request_body 时自动跳过（零开销）
+  #   - 文件上传双维度拦截：扩展名 + MIME 类型 + 双重扩展名检测（如 .jpg.php）
+  #   - 不依赖 iptables/pcap，纯日志分析
+  body_scan:
+    enabled: true                      # 总开关；关闭后完全不扫描请求体
+    max_body_size: 1048576             # 最大扫描字节数（默认 1MB），超过截断
+    content_types:                     # 仅扫描以下 Content-Type 的请求体
+      - application/json
+      - application/x-www-form-urlencoded
+      - multipart/form-data
+      - text/xml
+      - application/xml
+    file_upload:
+      # 拦截的危险文件扩展名（含点）
+      blocked_extensions:
+        - .php
+        - .phtml
+        - .php3
+        - .php4
+        - .php5
+        - .phar
+        - .jsp
+        - .jspx
+        - .asp
+        - .aspx
+        - .asa
+        - .cer
+        - .cdx
+        - .ashx
+        - .htaccess
+        - .htpasswd
+        - .cgi
+        - .pl
+        - .py
+        - .sh
+        - .exe
+        - .bat
+        - .com
+        - .dll
+        - .jar
+      # 拦截的危险 MIME 类型
+      blocked_mime_types:
+        - application/x-php
+        - application/x-httpd-php
+        - application/x-httpd-php-source
+        - application/x-perl
+        - application/x-shellscript
+        - application/x-msdownload
+
+  # ---- IDOR/BOLA 越权检测（v1.0 新增，默认关闭）----
+  # 检测同一 IP 在短时间内访问过多不同的资源 ID（如 /api/users/1, /api/users/2, ...），
+  # 用于识别越权遍历攻击。
+  # 设计要点：
+  #   - 基于路径正则提取资源 ID（如 /api/users/{id}）
+  #   - 每个 IP 在配置窗口内访问超过 MaxIDs 个不同 ID 时触发
+  #   - 路径无 ID 或正则不匹配时自动跳过（零误报）
+  #   - 默认关闭，需要用户显式开启并配置业务相关的路径模式
+  resource_baseline:
+    enabled: false                     # 默认关闭，显式开启
+    patterns:
+      # 用户资源越权探测
+      - path_regex: "^/api/users/[0-9]+"
+        id_regex: "/([0-9]+)"
+        window_sec: 60
+        max_ids: 20
+        weight: 15
+      # 订单资源越权探测
+      # - path_regex: "^/api/orders/[0-9]+"
+      #   id_regex: "/([0-9]+)"
+      #   window_sec: 60
+      #   max_ids: 30
+      #   weight: 12
+
+  # ---- Consistency 5 维行为连贯性评分（v1.2，可选覆盖，全部有程序默认）----
+  # 用于 Scorer 之后的降权 gate：
+  #   若一个 IP 行为形状是 BENIGN（路径连贯、新颖度饱和、路径集中、
+  #   状态稳定、方法语义自然），但 Scorer 给了高分（QPS 基线偏离），
+  #   则降权到 ScoreMedium，让多事件确认机制去处理。
+  #
+  # 调参场景：
+  #   - 纯 API 站（只有几个接口反复调用）→ 降低 path_concentrated_threshold
+  #   - SPA 富前端（首屏大量不同静态资源）→ 放宽 novelty_early30_min
+  #   - 内部 RPA/爬虫客户端（批量 POST）→ 降低 score_threshold
+  #
+  # 留空（或完全省略 consistency 段）则全部使用程序默认值，生产行为零变化。
+  # YAML 零值字段会被程序默认值覆盖，无需填写全部 20+ 字段。
+  #
+  # 默认值见 detector.DefaultConsistencyThresholds()：
+  #
+  consistency:
+    # --- 工程参数 ---
+    ring_capacity: 512                # 每 IP 最多保留的历史请求数（ring buffer 容量）
+    min_samples: 20                   # 总请求数不足时跳过评分（数据太少不可靠）
+    score_threshold: 4                # 原始分 >= 此值 → 判 BENIGN（触发降权 gate）
+
+    # --- 5 维正向信号阈值 ---
+    # 前缀连贯：平均连续段长度 >= 此值，或 dominant 前缀占比 >= 此值
+    prefix_run_len_min: 3
+    prefix_dominant_min: 0.50
+
+    # 新颖度饱和：前 30% 请求覆盖 >= 此比例的不同路径，且后 30% 新增 <= 此比例
+    novelty_early30_min: 0.70
+    late_novelty_rate_max: 0.40
+
+    # 路径集中：Top5 路径覆盖比例 >= 此值
+    path_concentrated_threshold: 0.25
+
+    # 状态同质：同路径返回状态码变异系数 < 此值
+    status_cv_max: 0.6
+
+    # 方法语义：GET/POST/PUT/DELETE/PATCH 比例合理范围
+    get_ratio_min: 0.50
+    get_ratio_max: 0.99
+    post_ratio_min: 0.01
+    post_ratio_max: 0.49
+    unusual_max: 0.05                 # PUT/DELETE/PATCH 上限
+    pure_api_get_max: 0.80             # 纯 API GET 客户端豁免阈值
+    pure_api_post_min: 0.50            # 纯 API POST 客户端豁免阈值
+
+    # --- 反信号阈值 ---
+    # 动态路径反复撞墙 >= 此次全错 → -5；公共探测路径阈值更高
+    always_error_dynamic_min: 5
+    always_error_probe_min: 10
+    single_path_error_bonus: 3         # 单路径 + 全错 → 额外 -3
+    always_error_score_penalty: 5
+
+    # 发散扫描反信号（每条路径只扫一次的扫描器）→ -3
+    highly_novel_early_max: 0.50       # 早 30% 覆盖 < 此值
+    highly_novel_late_min: 0.70        # 晚 30% 新增 > 此值
+    highly_novel_cover_max: 0.40       # Top5 覆盖 < 此值
+    highly_novel_penalty: 3
+
+    # --- 5 维评分权重 ---
+    weight_prefix: 2
+    weight_novelty: 2
+    weight_path_conc: 2
+    weight_errors: 1
+    weight_method: 1
+
+  # ---- 可信内网网段（v1.2，默认空 → 不启用）----
+  # 命中此列表的 IP 正常参与 SlidingWindow 计数（保留基线数据），
+  # 但跳过 Consistency BENIGN 降权 gate（防止 API 网关/K8s Pod
+  # 等内部流量被误判为"路径极集中的扫描器"）。
+  # 与白名单的区别：白名单是"零检测 + 永不封禁"，
+  # TrustedSubnet 是"轻量化检测"——保留计数但不做降权 gate。
+  # 支持 CIDR 网段：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, IPv6 /64 等
+  #
+  # trusted_subnets:
+  #   - 10.0.0.0/8
+  #   - 172.16.0.0/12
+  #   - 192.168.0.0/16
+  #   - 2001:db8::/64
+
+  # ---- 蜜罐路径（v1.3，默认空 → 不启用）----
+  # 扫描器一定会扫的敏感路径——命中即判定为恶意扫描。
+  # 与 sensitive_paths（基线偏离评分）不同：
+  #   sensitive_paths 是"访问 admin 且 QPS 远超基线"才触发；
+  #   honeypot_paths 是"访问 /phpmyadmin"直接触发，绕过多事件确认、
+  #   绕过 Consistency 降权 gate，单次命中即封禁。
+  #
+  # 匹配模式（大小写不敏感，自动去除 query string）：
+  #   - 精确匹配："/admin" → 仅匹配该路径
+  #   - 前缀匹配："/traps/" → 匹配该前缀下所有子路径
+  #
+  # 严禁配置真实业务路径——蜜罐与 skip_paths 重叠时启动会 WARN 但不阻塞。
+  #
+  # honeypot_paths:
+  #   - /admin
+  #   - /.env
+  #   - /.git/
+  #   - /phpmyadmin
+  #   - /traps/                         # 前缀匹配，所有 /traps/* 都是蜜罐
+
+# ===== 端口扫描检测（v1.0 新增顶级 section）=====
+# 检测 nmap/masscan 等端口扫描工具。
+# 数据源优先级：iptables LOG（Linux 真实流量镜像）→ pcap（跨平台回退）→ noop（禁用）
+# 设计要点：
+#   - 端口扫描独立于 HTTP 日志，直接监听网络层 SYN 包
+#   - 未配置 iptables LOG 规则时自动降级为 noop，零开销
+#   - 三档窗口跟踪单 IP 访问的不同端口数量
+port_scan:
+  enabled: false                       # 默认关闭，显式开启
+  source: auto                         # auto | iptables | pcap | disabled
+                                       # auto: 自动检测，iptables 可用时优先用
+  log_path: /var/log/syslog            # iptables LOG 输出路径（或 /var/log/kern.log）
+  log_prefix: "[PORT_SCAN]: "          # iptables LOG 规则中 --log-prefix 必须匹配
+  block_ttl: 3600                     # 端口扫描 IP 拉黑 TTL（秒）
+  weight: 30                           # 触发拉黑的权重
+  # pcap 相关（跨平台回退，需安装 libpcap）
+  pcap_iface: any                      # pcap 监听接口
+  pcap_filter: "tcp[tcpflags] & tcp-syn != 0"
+  # 三档窗口（跟踪不同端口基数）
+  windows:
+    - size: 5                          # 5s 窗口：瞬时扫描
+      max_ports: 5                     # 5 秒内扫 5 个不同端口 → 触发
+    - size: 30                         # 30s 窗口：常规扫描
+      max_ports: 15
+    - size: 120                        # 120s 窗口：慢速扫描
+      max_ports: 40
+
+# ===== IP 黑白名单 =====
+# 白名单：命中白名单的 IP 直接跳过检测（不记分、不拉黑）。
+#   - 类型：hash:net（支持精确 IP、CIDR 网段、IPv6 地址）
+#   - 优先级：本地配置白名单 > 云端全局/租户白名单 > 其他黑名单
+#   - 注意：首次启动会自动将旧 hash:ip 类型的白名单销毁重建为 hash:net
+# 黑名单：预加载的本地黑名单（断网兜底，一般留空由云端下发）
+ipset:
+  whitelist:
+    - 127.0.0.1                           # 本机回环
+    - ::1                                 # IPv6 回环
+    # - 192.168.1.0/24                   # 内网 CIDR 网段
+    # - 10.0.0.0/8                       # 内网大网段
+    # - 172.16.0.0/12                    # 内网网段（172.16-172.31）
+    # - 2001:db8::/32                    # IPv6 网段
+  blacklist: []                            # 预加载黑名单（断网兜底，一般留空）
+
+# ===== 本地 CLI 通信 UnixSocket =====
+# Agent 提供 Unix Socket 接口，供本机 CLI 工具（wardennet-cli）调用。
+# 权限 0600，仅本机 root 用户可访问。
+unix_socket:
+  path: /var/run/wardennet.sock

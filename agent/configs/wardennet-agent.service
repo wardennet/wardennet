@@ -1,0 +1,28 @@
+﻿[Unit]
+Description=WardenNet Agent - 本地恶意扫描防护
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/wardennet/wardennet --config /etc/wardennet/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# 安全加固
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/wardennet /var/lib/wardennet /var/log/wardennet
+ReadWritePaths+=/var/log/nginx
+
+# 环境变量
+Environment=GIN_MODE=release
+
+[Install]
+WantedBy=multi-user.target

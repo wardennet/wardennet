@@ -1,0 +1,59 @@
+# Docker build context 忽略列表
+# nginx 镜像从项目根目录 build，只需要 cloud/web + deploy/nginx
+
+__pycache__
+*.pyc
+*.pyo
+*.log
+.git
+.gitignore
+.trae
+.idea
+.vscode
+
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+*.lock
+*.log
+npm-debug.log*
+
+# 前端 build 产物（会在 Docker 里重新 build）
+cloud/web/dist/
+
+# 测试
+tests/
+*.test.*
+*.spec.*
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+
+# 环境文件（手动 .env 复制）
+.env
+.env.local
+.env.*.local
+
+# 文档
+docs/
+*.md
+
+# IDE
+*.iml
+.idea/
+.vscode/
+
+# 二进制
+agent/build/
+agent/dist/
+*.exe
+*.dll
+*.so

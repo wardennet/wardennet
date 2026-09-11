@@ -1,0 +1,206 @@
+# WardenNet Agent 生产环境配置
+# 复制为 /etc/wardennet/config.yaml 后修改使用
+#
+# === 防误杀机制说明 ===
+# 本检测器采用基线自学习评分引擎，自动学习网站正常流量模式，
+# 偏离基线即触发评分，无需手动维护阈值：
+#
+# 1. 基线自学习（取代夜间模式）
+#    - 基线 P95 自动随时间窗口滑动更新，适应早中晚/周末/节假日流量变化
+#    - 不再需要夜间模式倍率——凌晨低流量时段基线会自动下移，
+#      扫描器同样的请求量会自然偏离基线被检出
+#
+# 2. 观察者模式（mode: report）
+#    - 上线初期可将 detector.mode 设为 report，只评分上报不封禁
+#    - 观察 1-2 周评分分布，确认无误报后再切回 mode: block
+#    - 生产环境灰度过渡的安全网
+#
+# 3. 空 Referer 佐证信号机制 (empty_referer)
+#    - 当空 Referer 是唯一可疑信号时，权重自动降级 80%（仅计 20%）
+#    - 合法 API 客户端（okhttp、python-requests 等）天然不带 Referer
+#    - 只有空 Referer 与其他可疑信号（4xx/404/BotUA/敏感路径等）共存时才给予完整权重
+#
+# 4. 已知 HTTP 客户端 UA 白名单
+#    - okhttp、python-requests、axios、Postman 等 14 种常见 HTTP 客户端
+#    - 匹配到这些 UA 时不判定为 Bot，避免合法 API 调用被误判
+#
+# 5. 敏感路径状态码关联
+#    - 敏感路径命中仅在状态码 >= 400（错误响应）时计入
+#    - 合法用户加载 /env.js 返回 200 不会被计为敏感路径
+#    - 攻击者探测敏感路径通常得到 404/403 等错误响应
+#
+# 6. 路径段精确匹配
+#    - env 只匹配 /env 或 /api/env，不匹配 /env.js
+#    - admin 只匹配 /admin 或 /api/admin，不匹配 /admin.js
+#    - 含 "/" 的多段关键词（如 etc/passwd）仍按子串匹配
+
+# ===== Agent 基础 =====
+agent:
+  local_block_ttl: 259200   # 72 小时本地拉黑（与原 Python 脚本一致）
+  cloud_block_ttl: 7200
+  cloud_max_ttl: 86400
+
+# ===== 日志输出 =====
+log:
+  level: info
+  file: /var/log/wardennet/agent.log
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true
+
+# ===== 日志源采集 =====
+log_sources:
+  nginx_access:
+    path: /var/log/nginx/access.log
+    parser: nginx_access
+
+# ===== 基线自学习评分引擎 =====
+detector:
+  enabled: true
+  # 评分模式：block(默认) = 正常封禁；report = 只评分上报不封禁（上线初期安全过渡）
+  mode: block
+  # 敏感度档位（基线自学习自动适配高流量/低流量网站，无需手动调阈值）
+  # high: 偏离 P95 2 倍即触发（安全优先，适合金融网站）
+  # medium: 偏离 P95 5 倍触发（平衡，默认值）
+  # low: 偏离 P95 10 倍触发（低误报，适合高流量电商）
+  sensitivity: medium
+  # 封禁阈值（score_high/medium/low 业务决策，非流量统计）
+  score_high: 50          # 分数 >= 50 触发拉黑
+  score_medium: 30        # 分数 >= 30 触发告警
+  score_low: 10           # 分数 >= 10 记录评分
+  # 绝对特征权重（出厂默认，99% 场景不需要改）
+  weights:
+    dangerous_pattern: 5   # SQL注入/XSS/路径遍历，出现即恶意
+    dangerous_method: 3    # CONNECT/TRACE 等危险 HTTP 方法
+    file_upload: 20        # .php/.jsp 等危险文件上传拦截
+  # 三档滑动窗口（窗口大小，基线 P95 自动随窗口缩放）
+  windows:
+    - size: 10            # 10s 窗口：突发检测（CC/暴力破解）
+    - size: 30            # 30s 窗口：持续检测
+    - size: 60            # 60s 窗口：慢速扫描检测
+
+# ---- 蜜罐路径（v1.3 新增，可选，默认不启用）----
+# 扫描器一定会扫 /admin、/.env、/phpmyadmin 等路径——命中即判定为恶意扫描。
+# 与 sensitive_paths（基线偏离评分）不同：蜜罐是绝对判定，
+# 直接触发封禁（绕过多事件确认、绕过 Consistency 降权 gate）。
+# 零依赖：不需要 Nginx 配合，access log 里记录了请求路径即可。
+# 支持精确匹配（"/admin"）和前缀匹配（"/traps/"）两种模式。
+# 严禁配置真实业务路径——与 skip_paths 冲突时蜜罐优先。
+#honeypot_paths:
+#  - /admin
+#  - /phpmyadmin
+#  - /.env
+#  - /.git/config
+#  - /wp-admin
+#  - /traps/            # 前缀匹配：该目录下所有路径都是蜜罐
+
+# ---- 请求体扫描 + 文件上传拦截（v1.0 新增，默认启用）----
+# 扫描 POST 请求体中的 JSON/Form/XML 内容，检测 SQL 注入/XSS/XXE 等攻击，
+# 同时拦截危险文件上传（.php/.jsp/.phtml/.phar 等）。
+body_scan:
+  enabled: true
+  max_body_size: 1048576   # 1MB
+  content_types:
+    - application/json
+    - application/x-www-form-urlencoded
+    - multipart/form-data
+    - text/xml
+    - application/xml
+  file_upload:
+    blocked_extensions:
+      - .php
+      - .phtml
+      - .php3
+      - .php4
+      - .php5
+      - .phar
+      - .jsp
+      - .jspx
+      - .asp
+      - .aspx
+      - .asa
+      - .cer
+      - .cdx
+      - .ashx
+      - .htaccess
+      - .htpasswd
+      - .cgi
+      - .pl
+      - .py
+      - .sh
+      - .exe
+      - .bat
+      - .com
+      - .dll
+      - .jar
+    blocked_mime_types:
+      - application/x-php
+      - application/x-httpd-php
+      - application/x-httpd-php-source
+      - application/x-perl
+      - application/x-shellscript
+      - application/x-msdownload
+
+# ---- IDOR/BOLA 越权检测（v1.0 新增，默认关闭）----
+# 检测同一 IP 在短时间内访问过多不同的资源 ID。
+# 生产环境如存在 RESTful API（/api/users/{id}），建议开启并配置业务路径。
+# resource_baseline:
+#   enabled: true
+#   patterns:
+#     - path_regex: "^/api/users/[0-9]+"
+#       id_regex: "/([0-9]+)"
+#       window_sec: 60
+#       max_ids: 20
+#       weight: 15
+
+# ===== 端口扫描检测（v1.0 新增顶级 section）=====
+# 检测 nmap/masscan 等端口扫描工具，独立于 HTTP 日志。
+# 生产环境建议开启——可在 http_* 之外多一层防御。
+# 需要先配置 iptables LOG 规则：
+#   iptables -A INPUT -p tcp -s <trusted_ip> --dport <ports> -j LOG --log-prefix "[PORT_SCAN]: " --log-level 4
+port_scan:
+  enabled: false          # 生产环境显式开启：enabled: true
+  source: auto            # auto | iptables | pcap
+  log_path: /var/log/syslog
+  log_prefix: "[PORT_SCAN]: "
+  block_ttl: 3600
+  weight: 30
+  pcap_iface: any
+  pcap_filter: "tcp[tcpflags] & tcp-syn != 0"
+  windows:
+    - size: 5
+      max_ports: 5
+    - size: 30
+      max_ports: 15
+    - size: 120
+      max_ports: 40
+
+# ===== IP 黑白名单 =====
+ipset:
+  whitelist:
+    - 127.0.0.1
+    - ::1
+    # - 192.168.1.0/24    # 内网段
+  blacklist: []           # 预加载黑名单（断网兜底）
+
+# ===== UnixSocket CLI =====
+unix_socket:
+  path: /var/run/wardennet.sock
+
+# ===== 云端 SaaS 同步（libcloudplugin.so）=====
+# 启用前必须：
+#   1. 在云端创建租户，拿到 tenant_id
+#   2. 配置 cloud.base_url 指向云端 API（末尾不带 /api）
+#   3. 首次启动会自动向云端注册 Agent，拿到 agent_secret
+#      拿到 agent_secret 后写回此配置文件并重启（避免每次重新注册）
+cloud:
+  enabled: false                # 云端联动总开关；设为 true 启用
+  base_url: ""                  # 云端 API 根地址，如 https://yyeyr2ifv9-8080.cnb.run
+  tenant_id: ""                 # 租户 ID，来自前端创建租户返回值
+  agent_secret: ""              # Agent 注册密钥；首次留空即可，注册成功后云端会返回
+  plugin_path: /usr/lib/wardennet/libcloudplugin.so
+  sync_interval: 600            # Diff 拉取间隔（秒）
+  heartbeat_interval: 300       # 心跳间隔（秒）
+  command_interval: 120         # 远程指令拉取间隔（秒）
+  feature_interval: 600         # 特征库同步间隔（秒）

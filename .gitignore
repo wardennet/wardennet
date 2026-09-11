@@ -1,0 +1,166 @@
+# ============ 操作系统 ============
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# ============ IDE / 编辑器 ============
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# AI 工具工作目录（私有数据，不提交）
+.trae/
+.trae-cn/
+.cursor/
+.aider/
+
+# ============ Go ============
+# Go 构建产物
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+*.o
+*.so
+*.dll
+*.a
+*.h
+
+# Agent 构建产物（build-all.ps1 输出）
+agent/wardennet_linux
+agent/wardennet_linux_static
+agent/wardennet_linux_online
+agent/wardennet_linux_cloud
+agent/wardennet_linux_so
+agent/wardennet.exe
+agent/wardennet_probe.exe
+agent/detector.test.exe
+wardennet-1
+
+# Go 模块缓存与 vendor（本地开发不提交）
+/vendor/
+
+# Go workspace
+go.work
+go.work.sum
+
+# ============ 闭源商业化 CloudPlugin ============
+# CloudPlugin 云端对接实现（闭源）
+#agent/internal/cloudplugin/
+# CloudPlugin .so 插件薄壳入口（闭源）
+#agent/libcloudplugin/
+# CloudPlugin 私有工厂（-tags=plugin 构建时需要，闭源）
+#agent/cmd/wardennet/cloud_integrated.go
+
+# ============ Python ============
+# 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# 测试与类型检查缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 构建与打包
+build/
+dist/
+node_modules/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# 本地环境变量与密钥
+.env
+.env.local
+.env.*
+!.env.example
+
+# ============ 运行时与日志 ============
+*.log
+*.log.*
+logs/
+*.sock
+*.pid
+*.sqlite
+*.db
+
+# ============ 本地配置 ============
+*.local.yaml
+*.local.yml
+config.local.yaml
+config.yaml
+!agent/configs/wardennet.yaml.example
+!agent/configs/wardennet.production.yaml
+!cloud/config.example.yaml
+
+# ============ E2E 测试运行产物 ============
+agent_e2e_test/logs/
+agent_e2e_test/state/
+agent_e2e_test/wardennet.exe
+agent_e2e_test/wardennet_linux
+agent_e2e_test/tail_nginx_access_state.json
+agent_e2e_test/config.yaml
+agent_e2e_test/socket_client
+agent_e2e_test/socket_client2
+
+# ============ Cloud 本地数据 ============
+cloud/data/
+cloud/uploads/
+cloud/tmp/
+cloud/instance/
+
+# ============ 测试报告 ============
+coverage/
+*.coverprofile
+*.lcov
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+.cache
+
+# ============ 临时文件 ============
+tmp/
+temp/
+demo/
+*.tmp
+*.temp
+*.bak
+*.bak.*
+!agent/go.mod.bak
+*.patch
+*.diff
+
+# ============ 部署与打包 ============
+*.tar.gz
+*.zip
+*.tgz
+agent/build/
+agent/dist/
+
+# ============ 其他 ============
+*.tgz
+.vscode-test/
+.history/
+.node_repl_history
+.yarn-integrity
