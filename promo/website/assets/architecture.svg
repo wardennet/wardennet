@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0A1628;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0D2818;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="agentGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00FF88;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#00FF88;stop-opacity:0.05" />
+    </linearGradient>
+    <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#00D4FF;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#00D4FF;stop-opacity:0.05" />
+    </linearGradient>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="800" height="500" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- 标题 -->
+  <text x="400" y="35" text-anchor="middle" fill="#00FF88" font-size="18" font-weight="700" font-family="system-ui, sans-serif">WardenNet 系统架构</text>
+
+  <!-- ===== Cloud SaaS 区域 ===== -->
+  <rect x="280" y="55" width="240" height="130" fill="url(#cloudGrad)" stroke="#00D4FF" stroke-width="2" rx="10"/>
+  <text x="400" y="78" text-anchor="middle" fill="#00D4FF" font-size="14" font-weight="600" font-family="system-ui, sans-serif">Cloud SaaS（闭源）</text>
+  
+  <!-- Cloud 组件 -->
+  <rect x="295" y="88" width="100" height="28" fill="#00D4FF" fill-opacity="0.15" stroke="#00D4FF" stroke-width="1" rx="4"/>
+  <text x="345" y="107" text-anchor="middle" fill="#00D4FF" font-size="11" font-family="system-ui, sans-serif">威胁评分引擎</text>
+  
+  <rect x="405" y="88" width="100" height="28" fill="#00D4FF" fill-opacity="0.15" stroke="#00D4FF" stroke-width="1" rx="4"/>
+  <text x="455" y="107" text-anchor="middle" fill="#00D4FF" font-size="11" font-family="system-ui, sans-serif">Diff 同步服务</text>
+  
+  <rect x="295" y="124" width="100" height="28" fill="#00D4FF" fill-opacity="0.15" stroke="#00D4FF" stroke-width="1" rx="4"/>
+  <text x="345" y="143" text-anchor="middle" fill="#00D4FF" font-size="11" font-family="system-ui, sans-serif">多租户管理</text>
+  
+  <rect x="405" y="124" width="100" height="28" fill="#00D4FF" fill-opacity="0.15" stroke="#00D4FF" stroke-width="1" rx="4"/>
+  <text x="455" y="143" text-anchor="middle" fill="#00D4FF" font-size="11" font-family="system-ui, sans-serif">Web 控制台</text>
+
+  <!-- ===== Agent 节点集群 ===== -->
+  <text x="400" y="235" text-anchor="middle" fill="#A0AEC0" font-size="13" font-family="system-ui, sans-serif">协同防御网络（多节点交叉验证）</text>
+
+  <!-- Agent 节点 1 -->
+  <rect x="60" y="250" width="180" height="100" fill="url(#agentGrad)" stroke="#00FF88" stroke-width="2" rx="10"/>
+  <text x="150" y="272" text-anchor="middle" fill="#00FF88" font-size="13" font-weight="600" font-family="system-ui, sans-serif">Agent 节点 A（Go）</text>
+  <rect x="75" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="110" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">威胁检测</text>
+  <rect x="155" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="190" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">ipset 封禁</text>
+  <text x="150" y="325" text-anchor="middle" fill="#718096" font-size="10" font-family="system-ui, sans-serif">轻量 Go 单二进制 · 内核级防护</text>
+
+  <!-- Agent 节点 2 -->
+  <rect x="310" y="250" width="180" height="100" fill="url(#agentGrad)" stroke="#00FF88" stroke-width="2" rx="10"/>
+  <text x="400" y="272" text-anchor="middle" fill="#00FF88" font-size="13" font-weight="600" font-family="system-ui, sans-serif">Agent 节点 B（Go）</text>
+  <rect x="325" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="360" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">协同上报</text>
+  <rect x="405" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="440" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">白名单豁免</text>
+  <text x="400" y="325" text-anchor="middle" fill="#718096" font-size="10" font-family="system-ui, sans-serif">本地独立可用 · 离线零降级</text>
+
+  <!-- Agent 节点 3 -->
+  <rect x="560" y="250" width="180" height="100" fill="url(#agentGrad)" stroke="#00FF88" stroke-width="2" rx="10"/>
+  <text x="650" y="272" text-anchor="middle" fill="#00FF88" font-size="13" font-weight="600" font-family="system-ui, sans-serif">Agent 节点 C（Go）</text>
+  <rect x="575" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="610" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">日志解析</text>
+  <rect x="655" y="282" width="70" height="22" fill="#00FF88" fill-opacity="0.1" stroke="#00FF88" stroke-width="1" rx="3"/>
+  <text x="690" y="297" text-anchor="middle" fill="#E8F5E9" font-size="10" font-family="system-ui, sans-serif">Failover</text>
+  <text x="650" y="325" text-anchor="middle" fill="#718096" font-size="10" font-family="system-ui, sans-serif">安全双向鉴权 · 智能同步</text>
+
+  <!-- 连接线：Agent → Cloud -->
+  <line x1="400" y1="185" x2="150" y2="250" stroke="#00FF88" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6"/>
+  <line x1="400" y1="185" x2="400" y2="250" stroke="#00FF88" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6"/>
+  <line x1="400" y1="185" x2="650" y2="250" stroke="#00FF88" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6"/>
+
+  <!-- 连接线：Agent 之间 -->
+  <line x1="240" y1="300" x2="310" y2="300" stroke="#00D4FF" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.5"/>
+  <line x1="490" y1="300" x2="560" y2="300" stroke="#00D4FF" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.5"/>
+
+  <!-- ===== 决策引擎面板 ===== -->
+  <rect x="140" y="390" width="520" height="60" fill="#111D30" stroke="#00FF88" stroke-width="1" rx="8"/>
+  <text x="400" y="415" text-anchor="middle" fill="#A0AEC0" font-size="11" font-family="system-ui, sans-serif">决策引擎</text>
+  <text x="400" y="438" text-anchor="middle" fill="#00FF88" font-size="13" font-family="Consolas, monospace">智能多信号融合 · 动态权重分级处置</text>
+
+  <!-- ===== 图例 ===== -->
+  <text x="60" y="475" fill="#00FF88" font-size="10" font-family="system-ui, sans-serif">█ Agent 节点（Go · 开源）</text>
+  <text x="300" y="475" fill="#00D4FF" font-size="10" font-family="system-ui, sans-serif">█ Cloud SaaS（闭源）</text>
+  <text x="530" y="475" fill="#A0AEC0" font-size="10" font-family="system-ui, sans-serif">─ 协同通信（加密鉴权）</text>
+</svg>

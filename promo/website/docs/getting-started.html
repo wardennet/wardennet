@@ -1,0 +1,238 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快速上手 - WardenNet</title>
+  <meta name="description" content="WardenNet Agent 快速上手指南 - 3 步从零跑通防护">
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+  <div class="container navbar-inner">
+    <a href="../index.html" class="navbar-brand">
+      <span class="logo-icon">W</span>
+      WardenNet
+    </a>
+    <ul class="navbar-links">
+      <li><a href="../index.html">首页</a></li>
+      <li><a href="../product.html">产品</a></li>
+      <li><a href="index.html" class="active">文档</a></li>
+      <li><a href="../about.html">关于</a></li>
+      <li><a href="#" class="navbar-cta">GitHub</a></li>
+    </ul>
+    <button class="navbar-toggle" aria-label="菜单">☰</button>
+  </div>
+</nav>
+
+<!-- 文档主区域 -->
+<div class="container doc-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="doc-sidebar">
+    <h3>文档导航</h3>
+    <ul class="doc-nav">
+      <li><a href="index.html">文档首页</a></li>
+      <li><a href="getting-started.html" class="active">快速上手</a></li>
+      <li><a href="installation.html">安装部署</a></li>
+      <li><a href="configuration.html">配置详解</a></li>
+      <li><a href="faq.html">常见问题</a></li>
+      <li><a href="architecture.html">架构设计</a></li>
+            <li><a href="troubleshooting.html">故障排查</a></li>
+      <li><a href="waf-integration.html">与商业 WAF 协同</a></li>
+    </ul>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="doc-content">
+
+    <!-- 面包屑 -->
+    <div class="doc-breadcrumb">
+      <a href="../index.html">首页</a> &raquo; <a href="index.html">文档</a> &raquo; 快速上手
+    </div>
+
+    <h1>快速上手</h1>
+
+    <p>本指南带你用 <strong>3 步</strong> 从零跑通 WardenNet Agent，让你的服务器立即获得 Web 攻击防护能力。整个过程大约 <strong>5 分钟</strong>。</p>
+
+    <div class="alert alert-info">
+      <div class="alert-title">💡 单机模式即插即用</div>
+      Agent 是开源的、单机可独立运行的防护引擎。没有 CloudPlugin 也完全不影响本地防护能力。
+    </div>
+
+    <h2>前置条件</h2>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr><th>组件</th><th>要求</th><th>安装命令</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>操作系统</td><td>Linux（Ubuntu 20.04+ / Debian 11+ / CentOS 7+）</td><td>—</td></tr>
+          <tr><td>ipset</td><td>≥ 6.x</td><td><code class="inline">apt install ipset</code> 或 <code class="inline">yum install ipset</code></td></tr>
+          <tr><td>iptables</td><td>≥ 1.8.x</td><td><code class="inline">apt install iptables</code></td></tr>
+          <tr><td>Go</td><td>≥ 1.21（仅编译需要）</td><td><code class="inline">apt install golang-go</code></td></tr>
+          <tr><td>权限</td><td>root（操作 ipset/iptables 需要）</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>第 1 步：编译 Agent</h2>
+
+    <p>在你的开发机或服务器上克隆仓库并编译：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code># 克隆仓库
+git clone https://github.com/wardenet/wardenet.git
+cd wardenet/agent
+
+# 编译 Linux 二进制（交叉编译，Windows/Mac/Linux 均可）
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+go build -o wardennet_linux ./cmd/wardennet
+
+# 编译完成后查看产物大小
+ls -lh wardennet_linux
+# 预期：非常轻量</code></pre>
+    </div>
+
+    <div class="alert alert-info">
+      <div class="alert-title">💡 预编译二进制</div>
+      如果你不想编译，可以从 GitHub Releases 下载预编译好的 <code class="inline">wardennet_linux</code> 二进制文件。
+    </div>
+
+    <h2>第 2 步：准备配置</h2>
+
+    <p>复制示例配置文件并做最小修改：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code># 创建目录
+mkdir -p /opt/wardennet /etc/wardennet /var/log/wardennet
+
+# 复制二进制
+cp wardennet_linux /opt/wardennet/wardennet
+chmod +x /opt/wardennet/wardennet
+
+# 复制配置
+cp configs/wardennet.yaml.example /etc/wardennet/config.yaml</code></pre>
+    </div>
+
+    <p>编辑配置文件 <code class="inline">/etc/wardennet/config.yaml</code>，这是一个最小可用的单机模式配置：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">YAML</div>
+      <pre><code># 单机模式最小配置示例
+
+agent:
+  local_block_ttl: 3600   # 封禁 1 小时后自动解封
+
+log:
+  level: info
+  file: /var/log/wardennet/agent.log
+
+log_sources:
+  nginx_access:
+    path: /var/log/nginx/access.log   # 改成你的 Nginx 日志路径
+    parser: nginx_access
+
+detector:
+  enabled: true
+  mode: block
+  sensitivity: medium       # high=严格, medium=平衡, low=宽松
+  score_high: 50
+
+ipset:
+  whitelist:
+    - 127.0.0.1
+    - ::1
+
+cloud:
+  enabled: false  # 单机模式关闭云端</code></pre>
+    </div>
+
+    <div class="alert alert-warning">
+      <div class="alert-title">⚠️ 关键：日志路径</div>
+      <code class="inline">log_sources.nginx_access.path</code> 必须指向你服务器上实际的 Nginx access log 路径。常见路径：
+      <ul>
+        <li>Ubuntu/Debian: <code class="inline">/var/log/nginx/access.log</code></li>
+        <li>CentOS/RHEL: <code class="inline">/var/log/nginx/access.log</code></li>
+        <li>宝塔面板: <code class="inline">/www/wwwlogs/你的域名.log</code></li>
+      </ul>
+    </div>
+
+    <h2>第 3 步：运行 Agent</h2>
+
+    <p>推荐使用 systemd 服务管理 Agent：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code># 创建 systemd 服务文件
+cat > /etc/systemd/system/wardenet.service << 'EOF'
+[Unit]
+Description=WardenNet Agent - 本地恶意扫描防护
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/wardennet/wardennet --config /etc/wardennet/config.yaml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 启动服务
+systemctl daemon-reload
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">WardenNet</div>
+        <p class="footer-desc">开源协同防御网络。一处发现，全网御敌。让每一台服务器都成为哨兵。</p>
+      </div>
+      <div class="footer-col">
+        <h4>产品</h4>
+        <ul>
+          <li><a href="../product.html">产品介绍</a></li>
+          <li><a href="getting-started.html">快速开始</a></li>
+          <li><a href="architecture.html">架构设计</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>文档</h4>
+        <ul>
+          <li><a href="installation.html">安装部署</a></li>
+          <li><a href="configuration.html">配置详解</a></li>
+                <li><a href="troubleshooting.html">故障排查</a></li>
+      <li><a href="waf-integration.html">与商业 WAF 协同</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>关于</h4>
+        <ul>
+          <li><a href="../about.html">关于我们</a></li>
+          <li><a href="../about.html#license">开源协议</a></li>
+          <li><a href="../about.html#compliance">合规声明</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>© 2026 WardenNet · 开源 Agent（AGPLv3）· Cloud SaaS（闭源）</div>
+      <div class="footer-disclaimer">
+        免责声明：WardenNet 不提供网络层带宽防护，SYN/UDP 洪水、DDoS 攻击仍需依赖云厂商高防服务。
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="../js/common.js"></script>
+</body>
+</html>

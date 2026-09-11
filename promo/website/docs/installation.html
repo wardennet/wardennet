@@ -1,0 +1,236 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>安装部署 - WardenNet</title>
+  <meta name="description" content="WardenNet 详细安装指南 - 预编译二进制、源码编译、systemd 服务、Docker 部署">
+  <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+  <div class="container navbar-inner">
+    <a href="../index.html" class="navbar-brand">
+      <span class="logo-icon">W</span>
+      WardenNet
+    </a>
+    <ul class="navbar-links">
+      <li><a href="../index.html">首页</a></li>
+      <li><a href="../product.html">产品</a></li>
+      <li><a href="index.html" class="active">文档</a></li>
+      <li><a href="../about.html">关于</a></li>
+      <li><a href="#" class="navbar-cta">GitHub</a></li>
+    </ul>
+    <button class="navbar-toggle" aria-label="菜单">☰</button>
+  </div>
+</nav>
+
+<!-- 文档主区域 -->
+<div class="container doc-layout">
+
+  <!-- 侧边栏 -->
+  <aside class="doc-sidebar">
+    <h3>文档导航</h3>
+    <ul class="doc-nav">
+      <li><a href="index.html">文档首页</a></li>
+      <li><a href="getting-started.html">快速上手</a></li>
+      <li><a href="installation.html" class="active">安装部署</a></li>
+      <li><a href="configuration.html">配置详解</a></li>
+      <li><a href="faq.html">常见问题</a></li>
+      <li><a href="architecture.html">架构设计</a></li>
+            <li><a href="troubleshooting.html">故障排查</a></li>
+      <li><a href="waf-integration.html">与商业 WAF 协同</a></li>
+    </ul>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="doc-content">
+
+    <!-- 面包屑 -->
+    <div class="doc-breadcrumb">
+      <a href="../index.html">首页</a> &raquo; <a href="index.html">文档</a> &raquo; 安装部署
+    </div>
+
+    <h1>安装部署</h1>
+
+    <p>本指南提供 WardenNet Agent 的多种安装方式，从简单的二进制下载到完整的源码编译，覆盖各种生产环境需求。</p>
+
+    <h2>系统要求</h2>
+
+    <h3>生产环境（Linux）</h3>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr><th>组件</th><th>最低要求</th><th>推荐配置</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>操作系统</td><td>Ubuntu 20.04+ / Debian 11+ / CentOS 7+</td><td>Ubuntu 22.04 LTS</td></tr>
+          <tr><td>Linux Kernel</td><td>4.1+</td><td>5.x+</td></tr>
+          <tr><td>ipset</td><td>6.x</td><td>7.x+</td></tr>
+          <tr><td>iptables</td><td>1.8.x</td><td>1.8.x+ (legacy)</td></tr>
+          <tr><td>Go（编译时）</td><td>1.21+</td><td>1.24+</td></tr>
+          <tr><td>内存</td><td>256MB</td><td>512MB+</td></tr>
+          <tr><td>磁盘</td><td>1GB</td><td>2GB+（日志轮转）</td></tr>
+          <tr><td>权限</td><td>root 用户运行</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>安装系统依赖</h3>
+
+    <div class="code-block">
+      <div class="code-block-header">Ubuntu / Debian</div>
+      <pre><code>apt update
+apt install -y ipset iptables socat</code></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-block-header">CentOS / RHEL</div>
+      <pre><code>yum install -y ipset iptables-services</code></pre>
+    </div>
+
+    <h2>方式一：下载预编译二进制（推荐）</h2>
+
+    <p>最简单的方式，无需本地 Go 编译环境。</p>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code># 下载最新版本（替换版本号和架构）
+wget https://github.com/wardenet/wardenet/releases/download/v0.9.0/wardenet_linux_amd64
+# 或者 arm64 服务器
+# wget https://github.com/wardenet/wardenet/releases/download/v0.9.0/wardenet_linux_arm64
+
+# 创建目录并安装
+mkdir -p /opt/wardennet /etc/wardennet /var/log/wardennet /var/lib/wardennet
+mv wardennet_linux_amd64 /opt/wardennet/wardennet
+chmod +x /opt/wardennet/wardennet
+
+# 验证版本
+/opt/wardennet/wardennet --help</code></pre>
+    </div>
+
+    <h2>方式二：源码编译</h2>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code># 克隆仓库
+git clone https://github.com/wardenet/wardenet.git
+cd wardenet/agent
+
+# 编译 Linux amd64（Windows/Mac/Linux 均可交叉编译）
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+go build -o wardennet_linux \
+    -trimpath \
+    -ldflags="-s -w -X main.Version=v0.9.0" \
+    ./cmd/wardennet
+
+# 多架构批量编译
+for arch in amd64 arm64; do
+    CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
+        go build -o wardennet_linux_$arch ./cmd/wardennet
+done</code></pre>
+    </div>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr><th>编译参数</th><th>作用</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code class="inline">CGO_ENABLED=0</code></td><td>静态编译，产物无外部 C 库依赖</td></tr>
+          <tr><td><code class="inline">GOOS=linux</code></td><td>目标操作系统</td></tr>
+          <tr><td><code class="inline">GOARCH=amd64</code></td><td>目标架构（ARM 服务器改为 <code class="inline">arm64</code>）</td></tr>
+          <tr><td><code class="inline">-trimpath</code></td><td>清除本地绝对路径，防止构建环境泄漏</td></tr>
+          <tr><td><code class="inline">-ldflags="-s -w"</code></td><td>去掉符号表和调试信息，体积缩小 40%</td></tr>
+          <tr><td><code class="inline">-ldflags="-X main.Version=v0.9.0"</code></td><td>注入版本号</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>systemd 服务配置完整示例</h2>
+
+    <p>将以下内容保存为 <code class="inline">/etc/systemd/system/wardenet.service</code>：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">INI</div>
+      <pre><code>[Unit]
+Description=WardenNet Agent - 本地恶意扫描防护
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/wardennet/wardennet --config /etc/wardennet/config.yaml
+ExecStop=/opt/wardennet/wardennet --config /etc/wardennet/config.yaml stop
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+LimitNPROC=4096
+
+<span class="comment"># 环境变量（可选）</span>
+<span class="comment"># Environment=WARDENNET_AGENT_SECRET=your-secret-key</span>
+
+<span class="comment"># 安全加固（可选）</span>
+<span class="comment"># NoNewPrivileges=yes</span>
+<span class="comment"># ProtectSystem=full</span>
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+    </div>
+
+    <p>安装并启动服务：</p>
+
+    <div class="code-block">
+      <div class="code-block-header">Shell</div>
+      <pre><code>systemctl daemon-reload
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">WardenNet</div>
+        <p class="footer-desc">开源协同防御网络。一处发现，全网御敌。让每一台服务器都成为哨兵。</p>
+      </div>
+      <div class="footer-col">
+        <h4>产品</h4>
+        <ul>
+          <li><a href="../product.html">产品介绍</a></li>
+          <li><a href="getting-started.html">快速开始</a></li>
+          <li><a href="architecture.html">架构设计</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>文档</h4>
+        <ul>
+          <li><a href="installation.html">安装部署</a></li>
+          <li><a href="configuration.html">配置详解</a></li>
+                <li><a href="troubleshooting.html">故障排查</a></li>
+      <li><a href="waf-integration.html">与商业 WAF 协同</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>关于</h4>
+        <ul>
+          <li><a href="../about.html">关于我们</a></li>
+          <li><a href="../about.html#license">开源协议</a></li>
+          <li><a href="../about.html#compliance">合规声明</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>© 2026 WardenNet · 开源 Agent（AGPLv3）· Cloud SaaS（闭源）</div>
+      <div class="footer-disclaimer">
+        免责声明：WardenNet 不提供网络层带宽防护，SYN/UDP 洪水、DDoS 攻击仍需依赖云厂商高防服务。
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="../js/common.js"></script>
+</body>
+</html>

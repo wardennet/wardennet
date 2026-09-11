@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WardenNet 产品介绍 - 一处发现，全网御敌</title>
+  <meta name="description" content="WardenNet 产品介绍：开源 Agent + 闭源云端 SaaS 混合模式，6 层防御体系，5 维一致性评分引擎，为 Web 应用提供全方位协同防御。">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+  <div class="container navbar-inner">
+    <a href="index.html" class="navbar-brand">
+      <span class="logo-icon">W</span>
+      WardenNet
+    </a>
+    <ul class="navbar-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="product.html">产品</a></li>
+      <li><a href="docs/index.html">文档</a></li>
+      <li><a href="about.html">关于</a></li>
+      <li><a href="#" class="navbar-cta">GitHub</a></li>
+    </ul>
+    <button class="navbar-toggle" aria-label="菜单">☰</button>
+  </div>
+</nav>
+
+<!-- Hero Banner -->
+<section class="hero">
+  <div class="container hero-content">
+    <span class="hero-badge">🛡️ WardenNet — Collaborative Defense Network</span>
+    <h1>WardenNet <span class="accent">— 卫枢</span></h1>
+    <div class="hero-slogan-en">One detects. All defend.</div>
+    <div class="hero-slogan">一处发现，全网御敌</div>
+    <p class="hero-sub">让每一台服务器都成为哨兵。开源 Agent + 闭源云端 SaaS 混合模式，6 层防御体系 + 5 维评分引擎，为 Web 应用提供精准、轻量、协同的安全防护。</p>
+  </div>
+</section>
+
+<!-- 产品定位 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>产品定位</h2>
+      <p>开源 Agent + 闭源云端 SaaS，混合模式兼顾安全与协同</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🔓</div>
+        <h3>开源 Agent</h3>
+        <p>边缘节点完全开源（AGPLv3），Go 单二进制部署，零运行时依赖，单机永久免费可用。代码透明可审计，无隐藏后门风险。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">☁️</div>
+        <h3>闭源 Cloud SaaS</h3>
+        <p>云端协同服务，多节点交叉验证、威胁情报聚合、租户隔离治理。闭源保障防御策略安全，订阅模式按需付费。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔗</div>
+        <h3>混合协同</h3>
+        <p>Agent 单机可用，Cloud 协同增强。断网自动降级为单机模式，恢复后自动同步。本地实时 + 云端聚合，双重防御。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 核心理念 -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>核心理念</h2>
+      <p>"一处发现，全网御敌"</p>
+    </div>
+    <div style="max-width: 800px; margin: 0 auto; text-align: center;">
+      <p style="font-size: 17px; line-height: 1.8; color: var(--text-secondary); margin-bottom: var(--space-lg);">
+        传统安全方案各自为战，攻击者只需单点突破即可横行内网。WardenNet 通过协同防御网络，让每一台服务器既是独立哨兵，也是联动节点。当任意一台 Agent 发现可疑流量，威胁信号会实时广播至全网，所有节点同步提升警戒阈值。
+      </p>
+      <p style="font-size: 17px; line-height: 1.8; color: var(--text-secondary);">
+        我们相信，真正有效的防护不应依赖单点硬件的性能极限，而应依靠分布式节点的集体智慧。协同防御让小节点也能汇聚成钢铁长城，让攻击者无处藏身。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- 系统架构 -->
+<section class="section section-dark">
+  <div class="container">
+    <div class="section-header">
+      <h2 style="color: #E8F5E9;">系统架构</h2>
+      <p>边缘 Agent + 云端协同，混合架构全链路防护</p>
+    </div>
+    <div class="architecture-viz">
+      <img src="assets/architecture.svg" alt="WardenNet 系统架构" style="max-width: 100%; display: block;">
+    </div>
+  </div>
+</section>
+
+<!-- 核心能力 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>6 层防御体系</h2>
+      <p>从流量统计到自动封禁，层层递进，精准识别</p>
+    </div>
+    <div style="max-width: 700px; margin: 0 auto var(--space-2xl);">
+      <div class="architecture-viz" style="background: transparent; padding: 0;">
+        <img src="assets/defense-layers.svg" alt="6 层防御体系" style="max-width: 100%; display: block;">
+      </div>
+    </div>
+    <div class="defense-layers" style="max-width: 900px; margin: 0 auto;">
+      <div class="defense-layer">
+        <div class="layer-badge">L1</div>
+        <div class="layer-info">
+          <h4>流量异常检测</h4>
+          <p>实时监控 QPS 突增、404 扫描频次，滑动窗口统计多维度流量特征，快速捕获异常趋势。</p>
+        </div>
+      </div>
+      <div class="defense-layer">
+        <div class="layer-badge">L2</div>
+        <div class="layer-info">
+          <h4>攻击特征识别</h4>
+          <p>Bot UA 黑名单、敏感路径探测、危险 HTTP 方法识别，SQLi/XSS/RCE 经典 Payload 模式匹配。</p>
+        </div>
+      </div>
+      <div class="defense-layer">
+        <div class="layer-badge">L3</div>
+        <div class="layer-info">
+          <h4>协同信号关联</h4>
+          <p>多特征交叉验证，5 维一致性评分模型，路径行为聚类分析，从单点异常到群体模式识别。</p>
+        </div>
+      </div>
+      <div class="defense-layer">
+        <div class="layer-badge">L4</div>
+        <div class="layer-info">
+          <h4>防误报机制</h4>
+          <p>空 Referer 封顶策略、401 响应降权处理、良性爬虫行为豁免，多层反误伤保障业务连续性。</p>
+        </div>
+      </div>
+      <div class="defense-layer">
+        <div class="layer-badge">L5</div>
+        <div class="layer-info">
+          <h4>防投毒风控</h4>
+          <p>独家智能防投毒算法、智能去重机制、云端风控隔离、动态过期机制。</p>
+        </div>
+      </div>
+      <div class="defense-layer">
+        <div class="layer-badge">L6</div>
+        <div class="layer-info">
+          <h4>快速响应处置</h4>
+          <p>内核级 ipset 封禁、白名单绝对优先覆盖、ForceBlock 强制封禁模式，毫秒级执行处置动作。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 评分引擎 -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-header">
+      <h2>评分引擎</h2>
+      <p>5 维一致性评分 + 决策引擎，让威胁识别从经验走向量化</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>前缀连贯度</h3>
+        <p>扫描行为往往遵循目录树前缀，计算请求路径前缀的一致性，识别批量探测模式。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>新颖度饱和</h3>
+        <p>衡量 IP 在窗口内新增路径的饱和程度，正常用户行为有局限，扫描器倾向全量覆盖。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>路径集中度</h3>
+        <p>统计目标路径的分布熵值，攻击者常集中攻击敏感点，正常用户访问更分散。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📈</div>
+        <h3>状态同质性</h3>
+        <p>扫描器往往产生大量 404/403，正常用户响应码更丰富。计算响应码分布的均匀度。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚙️</div>
+        <h3>方法语义</h3>
+        <p>分析 HTTP 方法使用模式，探测型 IP 倾向 HEAD/GET 组合，攻击型 IP 会出现异常方法。</p>
+      </div>
+    </div>
+    <div style="max-width: 700px; margin: var(--space-2xl) auto 0; text-align: center;">
+      <div class="code-block">
+        <div class="code-block-header">Decision Engine</div>
+        <pre><code>智能多信号融合决策引擎
+
+云端情报 + 本地行为 + 检测器评分
+动态权重、智能分级处置</code></pre>
+      </div>
+      <p style="color: var(--text-muted); font-size: 14px; margin-top: var(--space-md);">
+        综合评分融合云端协同信号、本地行为分析和检测器特征，权重动态可调。智能分级处置——高置信度自动封禁，中等分数触发告警人工介入。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- 技术亮点 -->
+<section class="section">
+  <div class="container">
+    <div class="section-header">
+      <h2>技术亮点</h2>
+      <p>工程级实现，生产级可靠性</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🔌</div>
+        <h3>插件体系</h3>
+        <p>Go .so 动态插件机制，检测规则、评分模型、处置策略均可热插拔扩展，无需重新编译核心。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>智能同步引擎</h3>
+        <p>Global 全量 + Incremental 增量 + Tenant 租户隔离，多层同步策略兼顾时效性、可靠性和数据隔离。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔐</div>
+        <h3>安全双向鉴权</h3>
+        <p>所有 Agent-Cloud 通信基于加密签名认证，防篡改、防重放攻击，保障协同数据可信。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>Failover 恢复</h3>
+        <p>断网自动降级为单机模式继续防护，网络恢复后增量同步期间离线信号，实现真正的永不掉线。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 防御边界 -->
+<section class="section section-dark">
+  <div class="container">
+    <div class="section-header">
+      <h2 style="color: #E8F5E9;">防御边界</h2>
+      <p style="color: var(--text-muted);">明确能力边界，合规透明——我们承诺做到的，和不做的</p>
+    </div>
+    <div class="compliance-banner" style="max-width: 800px; margin: 0 auto var(--space-2xl);">
+      <div class="icon">⚠️</div>
+      <div class="content">
+        <div class="title">重要说明</div>
+        <p>WardenNet 专注于 Web 应用层（L7）威胁检测与 IP 封禁，不提供网络层（L3/L4）带宽防护。SYN/UDP 洪水、带宽耗尽型 DDoS 攻击仍需依赖云厂商硬件清洗或高防 IP。</p>
+      </div>
+    </div>
+    <div class="features-grid" style="max-width: 900px; margin: 0 auto;">
+      <div class="feature-card" style="background: #111D30; border-color: #2D3748;">
+        <div class="feature-icon">✅</div>
+        <h3 style="color: #00FF88;">可防护范围</h3>
+        <ul style="list-style: none; padding: 0; color: var(--text-muted); font-size: 14px; line-height: 2;">
+          <li>✅ 目录扫描（敏感路径探测）</li>
+          <li>✅ 漏洞探测（Payload 特征识别）</li>
+          <li>✅ 后门爆破（暴力破解检测）</li>
+          <li>✅ 小流量 CC（单 IP 慢速攻击）</li>
+          <li>✅ 集群打散型 CC（多节点协同聚合）</li>
+        </ul>
+      </div>
+      <div class="feature-card" style="background: #111D30; border-color: #2D3748;">
+        <div class="feature-icon">❌</div>
+        <h3 style="color: var(--orange-warn);">不可防护范围</h3>
+        <ul style="list-style: none; padding: 0; color: var(--text-muted); font-size: 14px; line-height: 2;">
+          <li>❌ SYN / UDP 洪水攻击</li>
+          <li>❌ 带宽耗尽型 DDoS</li>
+          <li>❌ 海量肉鸡大流量 CC</li>
+        </ul>
+        <p style="margin-top: var(--space-md); font-size: 13px; color: var(--orange-warn);">以上攻击类型需要网络层防护方案，如 Cloudflare、阿里云高防 IP 等。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">WardenNet</div>
+        <p class="footer-desc">开源协同防御网络。一处发现，全网御敌。让每一台服务器都成为哨兵。</p>
+      </div>
+      <div class="footer-col">
+        <h4>产品</h4>
+        <ul>
+          <li><a href="product.html">产品介绍</a></li>
+          <li><a href="docs/getting-started.html">快速开始</a></li>
+          <li><a href="docs/architecture.html">架构设计</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>文档</h4>
+        <ul>
+          <li><a href="docs/installation.html">安装部署</a></li>
+          <li><a href="docs/configuration.html">配置详解</a></li>
+          <li><a href="docs/troubleshooting.html">故障排查</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>关于</h4>
+        <ul>
+          <li><a href="about.html">关于我们</a></li>
+          <li><a href="about.html#license">开源协议</a></li>
+          <li><a href="about.html#compliance">合规声明</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>© 2026 WardenNet · 开源 Agent（AGPLv3）· Cloud SaaS（闭源）</div>
+      <div class="footer-disclaimer">
+        免责声明：WardenNet 不提供网络层带宽防护，SYN/UDP 洪水、DDoS 攻击仍需依赖云厂商高防服务。
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="js/common.js"></script>
+</body>
+</html>
