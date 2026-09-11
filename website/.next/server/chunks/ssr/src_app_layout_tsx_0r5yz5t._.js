@@ -1,0 +1,3 @@
+module.exports=[27572,a=>{"use strict";var b=a.i(7997);a.s(["default",0,function({children:a}){return(0,b.jsx)("html",{lang:"zh-CN",className:"h-full",children:(0,b.jsx)("body",{className:"min-h-full flex flex-col bg-white text-[#1A1A1A]",children:a})})},"metadata",0,{title:"WardenNet 卫枢 — 一处发现，全网御敌",description:"开源分布式 Web 服务器攻击 IP 联防平台。轻量 Agent + 云端协同，让每一台服务器都成为你的哨兵。"}])},50645,function(a){a.n(a.i(27572))}];
+
+//# sourceMappingURL=src_app_layout_tsx_0r5yz5t._.js.map
