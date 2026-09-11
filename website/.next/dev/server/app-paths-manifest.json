@@ -1,9 +1,0 @@
-{
-  "/docs/configuration/page": "app/docs/configuration/page.js",
-  "/docs/getting-started/page": "app/docs/getting-started/page.js",
-  "/docs/installation/page": "app/docs/installation/page.js",
-  "/docs/page": "app/docs/page.js",
-  "/docs/waf-integration/page": "app/docs/waf-integration/page.js",
-  "/page": "app/page.js",
-  "/product/page": "app/product/page.js"
-}
