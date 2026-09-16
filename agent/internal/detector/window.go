@@ -1,4 +1,4 @@
-// Package detector 实现 Agent 本地滑动窗口检测引擎。
+﻿// Package detector 实现 Agent 本地滑动窗口检测引擎。
 // 三档时间窗口（10s/30s/60s）并行统计，无外部依赖，内存基于环形桶 + TTL 淘汰。
 //
 // v1.1 404 路径归一化：
@@ -967,10 +967,8 @@ func (s *SlidingWindow) Record(ev *Event) {
 		e.mu.Unlock()
 	case ev.Status == 401:
 		b.count401 = 1
-		// v0.9: 401 从 Count4xx 排除（与 404 同级别独立）
-		// 原因：401 大多是合法降级（session/token 过期），不应计入攻击型 4xx。
-		// 认证相关评分统一走 Count401 通道（scorer 会把 Count401 + AuthFail 合并评分）。
-		// 401 仍然记录 fourXXBases 供 concentrated4xx 使用（路径集中度降权不敏感具体状态码）。
+		b.count4xx = 1
+		// 401 属于非 404 的 4xx，记录归一化路径供 concentrated4xx 使用
 		base := normalize404Path(ev.Path)
 		e.mu.Lock()
 		if e.fourXXBases == nil {
@@ -1451,12 +1449,9 @@ func (s *SlidingWindow) Counters(ip string) [3]WindowCounters {
 
 		for i := 0; i < 3; i++ {
 			cnt := xxCnts[i].count
-			// v0.9: fourXXBases 包含 401 路径 + 非 401/404/499 的 4xx 路径，
-			// 而 Count4xx 只统计非 401/404/499 的 4xx（401 已独立进 Count401）。
-			// 所以 Distinct4xxPaths 的正确上界 = Count4xx + Count401。
-			upperBound := out[i].Count4xx + out[i].Count401
-			if cnt > upperBound {
-				cnt = upperBound
+			// 防御性：distinct paths 不应超过 Count4xx 总数
+			if cnt > out[i].Count4xx {
+				cnt = out[i].Count4xx
 			}
 			out[i].Distinct4xxPaths = cnt
 		}

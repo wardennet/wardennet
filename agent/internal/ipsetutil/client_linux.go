@@ -85,25 +85,11 @@ func (c *LinuxClient) applyOne(e Entry) error {
 	case OpAdd:
 		// -exist 避免重复添加报错
 		args := []string{"add", e.Set, e.IP, "-exist"}
-		// blacklist 条目可带 timeout，内核到期自动清除（第一层兜底）
-		timeoutEnabled := e.Set == SetBlacklist && e.Timeout > 0
-		if timeoutEnabled {
+		// blacklist 条目可带 timeout，内核到期自动清除
+		if e.Set == SetBlacklist && e.Timeout > 0 {
 			args = append(args, "--timeout", fmt.Sprintf("%d", e.Timeout))
 		}
-		err := c.run(c.Bin, args...)
-		if err == nil {
-			return nil
-		}
-		// timeout fallback: 某些定制内核（如 deepin）ip_set_hash_ip 模块
-		// 不接受 --timeout 参数，报 "Kernel error received: Unknown error -1"
-		// 此时降级为不带 timeout，Agent 自身 TTL 管理器（第二层兜底）负责清理。
-		if timeoutEnabled {
-			fallbackArgs := []string{"add", e.Set, e.IP, "-exist"}
-			if retryErr := c.run(c.Bin, fallbackArgs...); retryErr == nil {
-				return nil // fallback 成功，不向上返回原始错误
-			}
-		}
-		return err
+		return c.run(c.Bin, args...)
 	case OpDel:
 		// -exist: 条目不存在时静默返回 0，避免与 kernel timeout 竞态
 		// （内核已删除条目但内存 blocked map 还在 → Sweep Unblock 重试失败）

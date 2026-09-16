@@ -37,10 +37,6 @@ type ScoreDetail struct {
 	Status5xxScore           int
 	AuthFailScore            int
 	Status404Score           int
-	// v1.4 新增：status anomaly 聚合分数 = Status4xx + Status404 + AuthFail + Status5xx
-	// 对应 activeRelDims 里合并后的 1 个 status 维度。
-	// 保留各子维度字段用于诊断日志；聚合字段供下游快速消费。
-	StatusAnomalyScore       int
 	SensitivePathScore       int
 	DangerousPatternScore    int
 	PathTraversalScore       int // v1.3 新增：路径遍历攻击意图分数

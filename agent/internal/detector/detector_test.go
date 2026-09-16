@@ -1234,10 +1234,8 @@ func Test404Normalization_ScannerRealScenario(t *testing.T) {
 	}
 }
 
-// Test404Normalization_Count4xxIncludesOtherCodes 验证 Count4xx 的归一化与互斥规则：
-//   - 404 独立进 Count404（与 Count4xx 互斥）
-//   - 401 独立进 Count401（与 Count4xx 互斥，v0.9 从 Count4xx 排除）
-//   - 其他 4xx（403/400/429...）进 Count4xx
+// Test404Normalization_Count4xxIncludesOtherCodes 验证 Count4xx 在归一化后仍包含非 404 的 4xx，
+// 且 Count4xx 与 Count404 互斥（404 独立进 Count404，不再进 Count4xx）。
 func Test404Normalization_Count4xxIncludesOtherCodes(t *testing.T) {
 	t.Parallel()
 	cfg := DefaultDetectorCfg()
@@ -1262,13 +1260,9 @@ func Test404Normalization_Count4xxIncludesOtherCodes(t *testing.T) {
 	if w0.Count404 != 1 {
 		t.Errorf("Count404=%d, want 1", w0.Count404)
 	}
-	// 401 独立进 Count401（v0.9: 从 Count4xx 排除）
-	if w0.Count401 != 1 {
-		t.Errorf("Count401=%d, want 1 (401 独立通道)", w0.Count401)
-	}
-	// Count4xx = 只有 403 (1)，401/404 都已独立
-	if w0.Count4xx != 1 {
-		t.Errorf("Count4xx=%d, want 1 (只有 403，不含 401 和 404)", w0.Count4xx)
+	// Count4xx = 401 (1) + 403 (1) = 2，与 Count404 互斥
+	if w0.Count4xx != 2 {
+		t.Errorf("Count4xx=%d, want 2 (401 + 403，不含 404)", w0.Count4xx)
 	}
 }
 

@@ -71,25 +71,12 @@ type BlockTrigger func(ev Event) (accepted bool)
 //   firstSeen — 首次进入观察的时间
 //   lastSeen  — 最近一次触发高分的时间
 //   count     — 已记录的独立高分事件数（排除 MergeWindowSec 内合并的重复）
-//
-// v1.4 新增：新鲜度快照。
-//   防止正常用户的"一次性异常"（如 token 过期 → 1 个 401 + 浏览器加载不存在的 js → 1 个 404）
-//   在 30s 窗口里反复触发 is_high，让 count 不断递增最终凑够 ConfirmCount 被封。
-//   只有当 12 个攻击输入计数中有任意一个真正增长（说明扫描器在演化），
-//   才认为是"新攻击事件"并给 count+1。
-//
-//   lastAnomalyAbs 快照顺序（与 scorer.go 构建 curAnomalies 的顺序一致）：
-//     [0-3] Status 类:       Count4xx, Count401, Count404, Count5xx
-//     [4-6] 绝对攻击特征:    SensitivePathHit, DangerousPatternHit, PathTraversalHit
-//     [7-8] 扫描器行为:      BotUAHit, Distinct4xxPaths
-//     [9-11] 辅助特征:       EmptyRefererHit, HeadMethod, DangerousMethod
+//   path      — 上一次触发 isHigh 的请求路径（用于判断是否同一次攻击）
 type observation struct {
 	firstSeen time.Time
 	lastSeen  time.Time
 	count     int
-	// v1.4: 上次触发 is_high 时的 12 维攻击输入计数快照
-	lastAnomalyAbs [12]int64
-	hasLastAnomaly bool
+	path      string
 }
 
 // ThreatReportTrigger 当检测到风险（score > 0）时的威胁上报回调。
@@ -296,19 +283,13 @@ func (d *LocalDetector) observEvictLoop(stopChan chan struct{}) {
 // FileUpload / 非 legit 场景的 BotUA），直接封禁，跳过观察名单。
 // highConfidence=false 表示仅有 4xx/QPS 偏离等相对特征，走多事件确认流程。
 //
+// path: 本次触发 isHigh 的请求路径（用于判断是否"同一次攻击"）。
+//   合并逻辑仅对"同一路径在短时间内重复命中"生效——
+//   不同路径的独立试探属于真正的多维度攻击，不能被 MergeWindowSec 吞掉。
+//
 // 返回 true 表示本次 isHigh 应该触发 BlockTrigger；false 表示仅记入观察名单。
 // 当 cfg.ConfirmCount <= 1 时直接返回 true（关闭确认，向后兼容）。
-//
-// v1.4 新增：details 参数用于新鲜度检查（freshness check）。
-//   正常用户的"一次性异常"（如 token 过期 → 1 个 401 + 浏览器加载不存在的 js → 1 个 404）
-//   在 30s 窗口里反复触发 is_high，但触发 is_high 的 12 个攻击输入计数（Count4xx, Count401,
-//   Count404, Count5xx, SensitivePathHit, DangerousPatternHit, PathTraversalHit, BotUAHit,
-//   Distinct4xxPaths, EmptyRefererHit, HeadMethod, DangerousMethod）全部冻结不增长。
-//   新鲜度检查对比当前 30s 窗口的 12 个值与上次 is_high 时的快照：
-//     - 全 ≤ 上次值 → 老异常复活 → 不涨 count，只刷新 lastSeen
-//     - 任意一个 > 上次值 → 扫描器在演化 → 新攻击事件 → count+1
-//   这样正常用户的"持续 is_high"永远凑不够 ConfirmCount，而扫描器的"持续演化 is_high"正常计数。
-func (d *LocalDetector) shouldBlock(ip string, highConfidence bool, nowSec int64, details [3]ScoreDetail) bool {
+func (d *LocalDetector) shouldBlock(ip, path string, highConfidence bool, nowSec int64) bool {
 	cfg := d.cfg
 	if cfg.ConfirmCount <= 1 {
 		return true // 关闭确认
@@ -319,16 +300,6 @@ func (d *LocalDetector) shouldBlock(ip string, highConfidence bool, nowSec int64
 		delete(d.observations, ip)
 		d.observMu.Unlock()
 		return true
-	}
-
-	// v1.4: 用 30s 窗口（details[1]）构建当前 12 维攻击输入快照
-	// 30s 窗口最稳定：MergeWindowSec=5s，至少 6 个独立 bucket 的增量可见
-	cur := details[1]
-	curAnomalies := [12]int64{
-		cur.Count4xx, cur.Count401, cur.Count404, cur.Count5xx,
-		cur.SensitivePathHit, cur.DangerousPatternHit, cur.PathTraversalHit,
-		cur.BotUAHit, cur.Distinct4xxPaths,
-		cur.EmptyRefererHit, cur.HeadMethod, cur.DangerousMethod,
 	}
 
 	now := time.Unix(nowSec, 0)
@@ -344,60 +315,47 @@ func (d *LocalDetector) shouldBlock(ip string, highConfidence bool, nowSec int64
 
 	obs, exists := d.observations[ip]
 	if !exists {
-		// 首次进入观察——记录快照，count=1，不封
+		// 首次进入观察
 		d.observations[ip] = &observation{
-			firstSeen:       now,
-			lastSeen:        now,
-			count:           1,
-			lastAnomalyAbs:  curAnomalies,
-			hasLastAnomaly:  true,
+			firstSeen: now,
+			lastSeen:  now,
+			count:     1,
+			path:      path,
 		}
 		return false
 	}
 
 	// 已存在 → 判定是否在合并窗口内
+	// 规则：
+	//   1. 同一路径 + 间隔 ≤ MergeWindowSec → 同一次攻击 → 合并
+	//   2. 不同路径但时间戳相同（同一秒内爆发） → 同一次 burst → 合并
+	//   3. 不同路径 + 间隔已超合并窗口 → 独立试探 → 计数（修复核心漏封）
 	mergeWindow := time.Duration(cfg.MergeWindowSec) * time.Second
 	if mergeWindow > 0 && now.Sub(obs.lastSeen) <= mergeWindow {
-		// 同一次事件内连续触发，不增加计数，只刷新时间
-		obs.lastSeen = now
-		return false
+		sameSecond := (nowSec > 0 && nowSec == obs.lastSeen.Unix())
+		sameAttack := (obs.path == path) || sameSecond
+		if sameAttack {
+			obs.lastSeen = now
+			return false
+		}
+		// 不同路径且间隔已超合并窗口 → 不合并，走计数
 	}
 
 	// 观察窗口过期 → 重置（视为一过性噪声已过去，重新开始）
 	observeWindow := time.Duration(cfg.ObserveWindowSec) * time.Second
 	if now.Sub(obs.firstSeen) > observeWindow {
 		d.observations[ip] = &observation{
-			firstSeen:       now,
-			lastSeen:        now,
-			count:           1,
-			lastAnomalyAbs:  curAnomalies,
-			hasLastAnomaly:  true,
+			firstSeen: now,
+			lastSeen:  now,
+			count:     1,
+			path:      path,
 		}
 		return false
 	}
 
-	// v1.4: 新鲜度检查——只有当异常绝对值真正增长时才涨 count
-	// 正常 token 过期场景：12 个异常计数全冻结 → allNoGrowth=true → 刷新 lastSeen，不涨 count
-	// 真实扫描场景：扫描器继续撞新路径 → Count404+1 或 Distinct4xxPaths+1 → allNoGrowth=false → count+1
-	if obs.hasLastAnomaly {
-		allNoGrowth := true
-		for i := range curAnomalies {
-			if curAnomalies[i] > obs.lastAnomalyAbs[i] {
-				allNoGrowth = false
-				break
-			}
-		}
-		if allNoGrowth {
-			// 老异常复活——不涨 count，只刷新 lastSeen
-			obs.lastSeen = now
-			return false
-		}
-	}
-
-	// 独立事件（或首次 is_high 已有快照） → 更新快照，计数 +1
-	obs.lastAnomalyAbs = curAnomalies
-	obs.hasLastAnomaly = true
+	// 独立事件（不同路径 或 间隔已超合并窗口）→ 计数 +1
 	obs.lastSeen = now
+	obs.path = path
 	obs.count++
 	if obs.count >= cfg.ConfirmCount {
 		// 凑够次数，清除观察记录，本次触发封禁
@@ -486,7 +444,7 @@ func (d *LocalDetector) SetResourceBaseline(rb *ResourceBaseline) {
 //  5. ResourceBaseline.Check 执行 IDOR 越权检测（如果已注入且启用）
 //  6. Scorer.ScoreWithDetail 取当前三档最高分 → scoreHTTP
 //  7. finalScore = min(ScoreHigh, scoreHTTP + scoreIDOR)
-//  8. isHigh → 先算 highConfidence → 调 shouldBlock(ip, highConf) 拿到封禁决策
+//  8. isHigh → 先算 highConfidence → 调 shouldBlock(ip, path, highConf) 拿到封禁决策
 //  9. LogDetail(ev, details, finalScore, isHigh, blocked) — blocked 传给日志做 WARN 分级
 // 10. blocked=true 且非 report-only → 同步回调 BlockTrigger
 func (d *LocalDetector) Process(ev Event) Event {
@@ -601,7 +559,7 @@ func (d *LocalDetector) Process(ev Event) Event {
 			blocked = false
 			} else {
 				highConf := computeHighConfidence(result.Details)
-				blocked = d.shouldBlock(ev.SourceIP, highConf, ev.Timestamp, result.Details)
+				blocked = d.shouldBlock(ev.SourceIP, ev.Path, highConf, ev.Timestamp)
 			}
 	}
 
@@ -704,19 +662,6 @@ type PreloadStats struct {
 	Duration       string    // 完成耗时（e.g. "4.2s"）
 	BaselineQPS    [3]float64 // 三档窗口的 QPS P95
 	QPSOutliersRemoved int    // MAD 方法剔除的 QPS 极端桶数（扫描器/爬虫/batch sync）
-
-	// ---------- Rate 维度基线值（v0.9 新增：让启动日志可见）----------
-	Rate4xxP95      float64 // 4xx 比率 P95（trimExtremes + MAD 双重剔除后）
-	Rate404P95      float64 // 404 比率 P95
-	Rate5xxP95      float64 // 5xx 比率 P95
-	RateAuthFailP95 float64 // 认证失败比率 P95
-
-	// ---------- 基线健康度（v0.9 新增：识别 Preload 是否被攻击流量污染）----------
-	// 正常网站的合理范围：rate4xx/rate404 通常 < 0.15，rate5xx < 0.02，rateAuthFail < 0.05
-	// 超出这些范围说明 Preload 基线可能被扫描器污染（即使经过了 MAD 也砍不掉，
-	// 因为扫描器分散在多个桶里导致没有明显离群点）
-	BaselineSuspicious bool     // 是否可疑（任一维度超出合理范围即标记）
-	SuspiciousReasons  []string // 可疑原因列表（如 ["rate4xx=0.23 > 0.15", ...]）
 
 	// ---------- IP 多样性 / 反代检测字段 ----------
 	UniqueIPs            int     // 去重后的不同 IP 数（排除 loopback/private）
@@ -968,25 +913,7 @@ func (d *LocalDetector) PreloadFromLogFile(path string, lp LineParser, minutes i
 	qpsVals = removeOutliersMAD(qpsVals, 5.0)
 	qpsRemoved := qpsValsBefore - len(qpsVals)
 
-	// v0.9: 所有 rate 维度都走 MAD 双重管线（之前只给 QPS 做了，和 runtime Update 对齐）
-	// trimExtremes 在前（P99×10 砍天文值），MAD 在后（砍"P99 本身就是极端值"的场景）
-	//
-	// rate 维度用更严格的 k=3（对应正态 ~2σ），因为：
-	//   - 正常网站 rate4xx/rate404 天然 < 10%，波动极小
-	//   - 扫描器污染会把少数桶的 rate 拉到远高于 median 的水平
-	//   - 用 k=3 能更积极地把"少数被扫描器污染的桶"识别为离群值
-	//
-	// QPS 继续用 k=5（正常流量随时间波动大，比如早晚峰差异大）
-	rate4xxVals = removeOutliersMAD(rate4xxVals, 3.0)
-	rate5xxVals = removeOutliersMAD(rate5xxVals, 3.0)
-	rate404Vals = removeOutliersMAD(rate404Vals, 3.0)
-	rateAuthVals = removeOutliersMAD(rateAuthVals, 3.0)
-
 	qpsDist := computePercentiles(qpsVals)
-	rate4xxDist := computePercentiles(rate4xxVals)
-	rate5xxDist := computePercentiles(rate5xxVals)
-	rate404Dist := computePercentiles(rate404Vals)
-	rateAuthDist := computePercentiles(rateAuthVals)
 
 	// 动态 MIN：用 preload 计算出的 qpsDist 自身来推导
 	// preload 还没有 Baseline 对象，构造临时 BaselineDimensions 喂给 computeMinQPS
@@ -1024,12 +951,10 @@ func (d *LocalDetector) PreloadFromLogFile(path string, lp LineParser, minutes i
 
 		curr := BaselineDimensions{
 			QPS:          Percentile{N: len(qpsVals)},
-			Rate4xx:      rate4xxDist,
-			Rate5xx:      rate5xxDist,
-			Rate404:      rate404Dist,
-			RateAuthFail: rateAuthDist,
-			// Preload 按时间桶聚合，没有 IP 粒度的 BotUA/SensPath/EmptyRef 数据，
-			// 设为 1.0（最高容忍度），runtime Update 会很快学到真实值覆盖。
+			Rate4xx:      computePercentiles(rate4xxVals),
+			Rate5xx:      computePercentiles(rate5xxVals),
+			Rate404:      computePercentiles(rate404Vals),
+			RateAuthFail: computePercentiles(rateAuthVals),
 			RateSensPath: Percentile{N: 0, P95: 1.0, P99: 1.0},
 			RateBotUA:    Percentile{N: 0, P95: 1.0, P99: 1.0},
 			RateEmptyRef: Percentile{N: 0, P95: 1.0, P99: 1.0},
@@ -1065,53 +990,6 @@ func (d *LocalDetector) PreloadFromLogFile(path string, lp LineParser, minutes i
 	}
 
 	stats.QPSOutliersRemoved = qpsRemoved
-
-	// v0.9: rate 维度基线值 — 给启动日志可见，便于验证基线是否合理
-	stats.Rate4xxP95 = rate4xxDist.P95
-	stats.Rate404P95 = rate404Dist.P95
-	stats.Rate5xxP95 = rate5xxDist.P95
-	stats.RateAuthFailP95 = rateAuthDist.P95
-
-	// v0.9: 基线健康度检查 — 通用场景兜底防线
-	// 对 rate 维度设"正常网站合理范围"上限。超出则说明 Preload 被攻击流量污染
-	// （即使 MAD 也砍不掉，因为扫描器分散在所有桶里）。
-	// 标记为可疑时：
-	//   - BaselineSuspicious=true（启动 WARN 日志提醒运维）
-	//   - confidence 降为 ≤ 0.5（让 runtime Update 更快覆盖不准的初始基线）
-	//
-	// 阈值说明：
-	//   rate4xx  > 0.15 — 正常网站 4xx P95 通常 < 10%，15% 明显偏高
-	//   rate404  > 0.15 — 同上
-	//   rate5xx  > 0.02 — 5xx 是内部错误，正常网站 < 2%
-	//   rateAuthFail > 0.05 — 认证失败（401/403）占比 > 5%，可能是暴力破解
-	const (
-		suspiciousRate4xx      = 0.15
-		suspiciousRate404      = 0.15
-		suspiciousRate5xx      = 0.02
-		suspiciousRateAuthFail = 0.05
-	)
-	var reasons []string
-	if rate4xxDist.P95 > suspiciousRate4xx {
-		reasons = append(reasons, fmt.Sprintf("rate4xx=%.4f > %.2f", rate4xxDist.P95, suspiciousRate4xx))
-	}
-	if rate404Dist.P95 > suspiciousRate404 {
-		reasons = append(reasons, fmt.Sprintf("rate404=%.4f > %.2f", rate404Dist.P95, suspiciousRate404))
-	}
-	if rate5xxDist.P95 > suspiciousRate5xx {
-		reasons = append(reasons, fmt.Sprintf("rate5xx=%.4f > %.2f", rate5xxDist.P95, suspiciousRate5xx))
-	}
-	if rateAuthDist.P95 > suspiciousRateAuthFail {
-		reasons = append(reasons, fmt.Sprintf("rateAuthFail=%.4f > %.2f", rateAuthDist.P95, suspiciousRateAuthFail))
-	}
-	if len(reasons) > 0 {
-		stats.BaselineSuspicious = true
-		stats.SuspiciousReasons = reasons
-		// 降低 confidence：让 runtime Update（有 G1 硬阈值预筛）在后续几分钟内
-		// 用真实正常流量快速覆盖掉被污染的 Preload 基线
-		if stats.Confidence > 0.5 {
-			stats.Confidence = 0.5
-		}
-	}
 
 	// === IP 多样性统计 + 反代判定 ===
 	d.fillIPDiversityStats(&stats, ipCount, ipTotalNonLocal)

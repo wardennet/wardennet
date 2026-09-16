@@ -1,4 +1,4 @@
-// Package detector - scorer.go 依据三档窗口计数 + 基线偏差 + 固定权重计算 LocalRiskScore。
+﻿// Package detector - scorer.go 依据三档窗口计数 + 基线偏差 + 固定权重计算 LocalRiskScore。
 // 设计：
 //   - 取三档窗口中最高分的那档作为最终 LocalRiskScore（任一窗口异常即敏感）；
 //   - 相对特征（QPS/4xx 比率等）基于偏离基线 P95 的倍数评分；
@@ -133,13 +133,7 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		}
 		detail.Status404Deviation = rate404Dev
 
-		// v0.9: 认证失败合并评分通道
-		//   Count401 — HTTP 401 状态码（nginx access.log 源，session/token 过期或暴力破解）
-		//   AuthFail — linux_auth 源认证失败事件（SSH/系统登录）
-		// 两者语义相近（"认证相关失败"），合并成一个维度统一评分。
-		// window.go 已把 401 从 Count4xx 排除，所以 Count4xx 是纯净的攻击型 4xx。
-		totalAuthFail := c.Count401 + c.AuthFail
-		rateAuthFail := ratio(totalAuthFail, c.TotalReq)
+		rateAuthFail := ratio(c.AuthFail, c.TotalReq)
 		rateAuthFailDev := deviation(rateAuthFail, bl.RateAuthFail)
 		authFailScore := 0
 		if c.TotalReq >= 5 {
@@ -257,17 +251,16 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		noAttackFeature := false
 		if noFatalAttack {
 			bp := float64(c.NormalBrowserHit) / float64(c.TotalReq)
-			totalAuthFail := int64(c.Count401) + c.AuthFail
 			if bp >= 0.95 {
 				// 浏览器占 >= 95%：容忍低比例噪音（每个维度都 < 3% 且绝对值 <= 5）
 				// 2% 比例 + 绝对上限 5，防止低样本时比例波动
 				noAttackFeature = (
 					ratio(int64(c.BotUAHit), c.TotalReq) <= 0.03 && int(c.BotUAHit) <= 5 &&
 						ratio(int64(c.SensitivePathHit), c.TotalReq) <= 0.02 && int(c.SensitivePathHit) <= 3 &&
-						ratio(totalAuthFail, c.TotalReq) <= 0.02 && totalAuthFail <= 3)
+						ratio(int64(c.AuthFail), c.TotalReq) <= 0.02 && int(c.AuthFail) <= 3)
 			} else {
 				// 浏览器占比不够高（可能是扫描器/爬虫/混合流量）：保持严格
-				noAttackFeature = (c.BotUAHit == 0 && c.SensitivePathHit == 0 && totalAuthFail == 0)
+				noAttackFeature = (c.BotUAHit == 0 && c.SensitivePathHit == 0 && c.AuthFail == 0)
 			}
 		}
 
@@ -311,16 +304,6 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		// ---------- 多维度协同评分架构 ----------
 		// 核心原则：没有任何单一相对维度能独立触发封禁。
 		// 必须有多个维度同时异常，或有绝对攻击特征（危险模式/文件上传） corroborate。
-		//
-		// v1.4 status 维度合并：
-		//   把 4 个 status 相对维度（Rate4xx, Rate404, RateAuthFail, Rate5xx）
-		//   合并为 1 个"status anomaly"维度。原因：
-		//   - 正常用户 token 过期 → 1 个 401 + 浏览器加载不存在的 js → 1 个 404
-		//     如果 401 和 404 各算一个维度 → dims=2 → 绕过 SingleDimCapped → 触发 is_high
-		//     合并后 → dims=1 → SingleDimCapped 生效 → 封顶 ScoreMedium → 不触发封禁
-		//   - 扫描器撞几十个不同 404 → 合并后 status anomaly 比率本身就很高，
-		//     deviationToScore 给高分，再叠加 QPS/BotUA/SensPath 其他维度 → dims≥2
-		//     合并不会降低攻击检测能力，只是消除了"不同类型 4xx 恰好各出现 1 次"的人为放大。
 
 		// 1. 单维度上限：每个相对维度最多贡献 ScoreHigh × 60%
 		relCap := high * 6 / 10
@@ -352,21 +335,11 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		// 2. 空 Referer 防误杀（保留原有逻辑，但也受 relCap 约束）
 		// thr 复用动态 threshold（已经在循环开头算好了）
 		thr := dynThreshold
-		// v1.4: status 4 个 deviation 合并——取 max 作为 statusAnomalyDev
-		// 因为 hasCorroborating 是"有没有其他维度佐证"，语义是"status 有没有异常"，
-		// 不是"几个 status 子类型同时异常"。
-		statusAnomalyDev := rate4xxDev
-		if rate404Dev > statusAnomalyDev {
-			statusAnomalyDev = rate404Dev
-		}
-		if rateAuthFailDev > statusAnomalyDev {
-			statusAnomalyDev = rateAuthFailDev
-		}
-		if rate5xxDev > statusAnomalyDev {
-			statusAnomalyDev = rate5xxDev
-		}
 		hasCorroborating := (qpsDev >= thr ||
-			statusAnomalyDev >= thr ||
+			rate4xxDev >= thr ||
+			rate404Dev >= thr ||
+			rate5xxDev >= thr ||
+			rateAuthFailDev >= thr ||
 			rateSensDev >= thr ||
 			rateBotUADev >= thr ||
 			dangerPatternScore > 0 || dangerMethodScore > 0)
@@ -405,14 +378,18 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		if qpsScore > 0 {
 			activeRelDims++
 		}
-		// v1.4: 4 个 status 子维度合并为 1 个 status anomaly 维度
-		// 正常用户 1 个 401 + 1 个 404 → 原来 dims+=2 → 绕 SingleDimCapped
-		// 现在 dims+=1 → SingleDimCapped 生效 → 封顶 ScoreMedium
-		statusRelDims := 0
-		if final4xxScore > 0 || final404Score > 0 || authFailScore > 0 || rate5xxScore > 0 {
-			statusRelDims = 1
+		if final4xxScore > 0 {
+			activeRelDims++
 		}
-		activeRelDims += statusRelDims
+		if rate5xxScore > 0 {
+			activeRelDims++
+		}
+		if authFailScore > 0 {
+			activeRelDims++
+		}
+		if final404Score > 0 {
+			activeRelDims++
+		}
 		if sensScore > 0 {
 			activeRelDims++
 		}
@@ -515,8 +492,6 @@ func (s *Scorer) ScoreWithDetail(counters [3]WindowCounters, ipQpsEMA float64, i
 		detail.Status5xxScore = rate5xxScore
 		detail.AuthFailScore = authFailScore
 		detail.Status404Score = final404Score
-		// v1.4: status anomaly 聚合分数（方便日志和下游消费）
-		detail.StatusAnomalyScore = final4xxScore + final404Score + authFailScore + rate5xxScore
 		detail.SensitivePathScore = sensScore
 		detail.DangerousPatternScore = dangerPatternScore
 		detail.PathTraversalScore = pathTraversalScore
