@@ -10,8 +10,9 @@ import (
 type MemClient struct {
 	mu        sync.Mutex
 	sets      map[string]map[string]struct{}
-	flaky     bool                               // true 时 Apply 随机失败（用于重试测试）
-	failOnIPs map[string]struct{}                // 指定哪些 IP 应失败（用于逐条跳过测试）
+	flaky     bool                    // true 时 Apply 随机失败（用于重试测试）
+	failOnIPs map[string]struct{}     // 指定哪些 IP 应失败（用于逐条跳过测试）
+	noTimeout bool                    // true 时拒绝任何带 Timeout>0 的 OpAdd（模拟旧内核 ipset bug）
 }
 
 // NewMemClient 创建内存 Mock 客户端。
@@ -40,6 +41,15 @@ func (c *MemClient) SetFailOnIPs(ips ...string) {
 	}
 }
 
+// SetNoTimeout 开启/关闭 "timeout 不支持" 故障模式（模拟旧内核 ipset bug）。
+// 开启后，任何 Timeout>0 的 OpAdd 都会返回 "Kernel error -1"，
+// 不带 timeout 的 OpAdd 正常。用于测试 Manager/LinuxClient 的 timeout 降级逻辑。
+func (c *MemClient) SetNoTimeout(v bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.noTimeout = v
+}
+
 func (c *MemClient) EnsureSet(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,6 +66,11 @@ func (c *MemClient) Apply(entries []Entry) error {
 		return fmt.Errorf("mem client flaky: simulated failure")
 	}
 	for i, e := range entries {
+		// noTimeout 故障模式：模拟旧 kernel ipset bug，带 timeout 的 add 失败
+		if c.noTimeout && e.Op == OpAdd && e.Timeout > 0 {
+			return fmt.Errorf("entry %d failed [%s %s]: ipset: Kernel error received: Unknown error -1 (timeout not supported)",
+				i, e.Set, e.IP)
+		}
 		// 检查是否为指定要失败的 IP
 		if _, fail := c.failOnIPs[e.IP]; fail {
 			return fmt.Errorf("entry %d failed [%s %s]: simulated IP-specific failure", i, e.Set, e.IP)

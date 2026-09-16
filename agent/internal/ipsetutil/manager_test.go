@@ -410,13 +410,93 @@ func TestManager_SyncWhitelistBatchFirst(t *testing.T) {
 	}
 
 	// 场景 3：清除失败项，重新同步批量恢复
-	mem.SetFailOnIPs()
-	err = m.SyncLocalWhitelist([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+		mem.SetFailOnIPs()
+		err = m.SyncLocalWhitelist([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
+		if err != nil {
+			t.Fatalf("recovery sync should succeed via batch: %v", err)
+		}
+		members, _ = mem.List(SetWhitelist)
+		if len(members) != 3 {
+			t.Errorf("recovery: want 3 members, got %v", members)
+		}
+}
+
+// TestManager_Block_TimeoutFallback 验证 timeout 降级：
+// 当内核/ipset 不支持 --timeout 参数时，Manager 应自动降级为不带 timeout 的 add，
+// 仍能成功将 IP 加入黑名单。
+//
+// 场景来源：deepin 生产环境 ipset v6.29 + 旧内核：
+//   ipset add wardennet_blacklist IP -exist --timeout 3600 → Kernel error -1
+//   ipset add wardennet_blacklist IP -exist                → 成功
+func TestManager_Block_TimeoutFallback(t *testing.T) {
+	mem := NewMemClient()
+	mem.SetNoTimeout(true) // 模拟旧内核：带 timeout 失败，不带 timeout 成功
+	m := NewManager(mem, 1, 10*time.Millisecond)
+	m.SetBlockTimeout(3600) // 配置了 timeout
+	defer m.Close()
+
+	// 第一次 Block：带 timeout 会在 applyWithRetry 里失败，
+	// Manager.blockInternal 里检测到 err 后，去掉 timeout 降级重试 → 成功
+	accepted, err := m.Block("106.75.139.66")
 	if err != nil {
-		t.Fatalf("recovery sync should succeed via batch: %v", err)
+		t.Fatalf("Block should succeed after timeout fallback, got err=%v", err)
 	}
-	members, _ = mem.List(SetWhitelist)
-	if len(members) != 3 {
-		t.Errorf("recovery: want 3 members, got %v", members)
+	if !accepted {
+		t.Errorf("accepted should be true after timeout fallback")
+	}
+
+	// 验证 IP 已在 ipset 中
+	ok, _ := mem.Exists(SetBlacklist, "106.75.139.66")
+	if !ok {
+		t.Errorf("IP should be in blacklist after timeout fallback")
+	}
+
+	// 第二次 Block：已在黑名单中 → ErrAlreadyBlocked（幂等）
+	accepted, err = m.Block("106.75.139.66")
+	if !errors.Is(err, ErrAlreadyBlocked) {
+		t.Errorf("second block: want ErrAlreadyBlocked, got err=%v accepted=%v", err, accepted)
+	}
+
+	// 第三次 Block 不同 IP：同样 timeout 降级
+	accepted, err = m.Block("8.8.8.8")
+	if err != nil {
+		t.Fatalf("second IP should also succeed via timeout fallback, got err=%v", err)
+	}
+	if !accepted {
+		t.Errorf("second IP: accepted should be true")
+	}
+	ok, _ = mem.Exists(SetBlacklist, "8.8.8.8")
+	if !ok {
+		t.Errorf("second IP should be in blacklist")
+	}
+
+	// 关掉 noTimeout，再 Block → 直接成功（带 timeout 正常）
+	mem.SetNoTimeout(false)
+	accepted, err = m.Block("1.1.1.1")
+	if err != nil {
+		t.Fatalf("with noTimeout off, Block should succeed: %v", err)
+	}
+	if !accepted {
+		t.Errorf("with noTimeout off: accepted should be true")
+	}
+}
+
+// TestManager_Block_TimeoutZeroNoFallback 验证 timeout=0 时不触发降级：
+// 不带 timeout 的 add 失败就是真失败，不应该重试。
+func TestManager_Block_TimeoutZeroNoFallback(t *testing.T) {
+	mem := NewMemClient()
+	mem.SetNoTimeout(true)
+	m := NewManager(mem, 1, 10*time.Millisecond)
+	m.SetBlockTimeout(0) // timeout = 0，不配置
+	defer m.Close()
+
+	// timeout=0 时，blockInternal 第一次就是不带 timeout 的 add，
+	// MemClient noTimeout 只拒绝 Timeout>0 的，所以应该成功
+	accepted, err := m.Block("10.0.0.1")
+	if err != nil {
+		t.Fatalf("timeout=0 with noTimeout client: Block should succeed: %v", err)
+	}
+	if !accepted {
+		t.Errorf("accepted should be true")
 	}
 }

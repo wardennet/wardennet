@@ -296,9 +296,8 @@ func (d *LocalDetector) shouldBlock(ip, path string, highConfidence bool, nowSec
 	}
 
 	if highConfidence {
-		d.observMu.Lock()
-		delete(d.observations, ip)
-		d.observMu.Unlock()
+		// highConfidence 是"致命攻击特征"直判，不依赖 observation 计数。
+		// 不删除 observation：如果 BlockTrigger 失败，下次 isHigh 仍可再次触发封禁。
 		return true
 	}
 
@@ -358,8 +357,13 @@ func (d *LocalDetector) shouldBlock(ip, path string, highConfidence bool, nowSec
 	obs.path = path
 	obs.count++
 	if obs.count >= cfg.ConfirmCount {
-		// 凑够次数，清除观察记录，本次触发封禁
-		delete(d.observations, ip)
+		// 凑够次数：返回 true 触发 BlockTrigger，但不删除 observation。
+		// 原因：如果 BlockTrigger 失败（ipset 故障、白名单等），保留 observation
+		//       让下一次 isHigh 事件还能再次触发封禁——避免陷入"多事件确认→封禁失败
+		//       → observation 已被删→重新开始计数→要等又一轮独立攻击"的死循环。
+		//
+		// observation 的清理责任转移给 Process：仅当 BlockTrigger 返回 accepted=true 时
+		// 才调用 clearObservation 清理，表示"封禁已成功落地"。
 		return true
 	}
 	return false
@@ -574,7 +578,14 @@ func (d *LocalDetector) Process(ev Event) Event {
 		t := d.trigger
 		d.mu.RUnlock()
 		if t != nil {
-			_ = t(ev)
+			accepted := t(ev)
+			// 仅当 ipset 成功落地时才清理 observation。
+			// 如果 BlockTrigger 返回 false（ipset 失败/白名单/已封），保留 observation
+			// 让下一次 isHigh 事件还能重新触发封禁——防止陷入"多事件确认→封禁失败
+			// → observation 被删→重新开始计数"的死循环。
+			if accepted {
+				d.clearObservation(ev.SourceIP)
+			}
 		}
 	}
 
@@ -596,6 +607,20 @@ func (d *LocalDetector) Process(ev Event) Event {
 // 这是三段式优先级的最高层（程序默认 → 用户配置 → 云端）。
 func (d *LocalDetector) SetBotUserAgents(list []string) {
 	d.window.SetBotUserAgents(list)
+}
+
+// clearObservation 删除指定 IP 的观察记录。
+// 仅当 BlockTrigger 返回 accepted=true（封禁已成功落地）时调用，
+// 表示"多事件确认已完成且 ipset 已执行"——清理后下一次 isHigh 会重新开始计数。
+// 如果 BlockTrigger 返回 false（ipset 失败/白名单/已封），保留 observation
+// 让下一次 isHigh 还能再次触发封禁。
+func (d *LocalDetector) clearObservation(ip string) {
+	if ip == "" {
+		return
+	}
+	d.observMu.Lock()
+	delete(d.observations, ip)
+	d.observMu.Unlock()
 }
 
 // RegisterBlockTrigger 注册拉黑回调。并发安全。返回旧回调。

@@ -85,11 +85,28 @@ func (c *LinuxClient) applyOne(e Entry) error {
 	case OpAdd:
 		// -exist 避免重复添加报错
 		args := []string{"add", e.Set, e.IP, "-exist"}
-		// blacklist 条目可带 timeout，内核到期自动清除
-		if e.Set == SetBlacklist && e.Timeout > 0 {
+		wantTimeout := e.Set == SetBlacklist && e.Timeout > 0
+		if wantTimeout {
 			args = append(args, "--timeout", fmt.Sprintf("%d", e.Timeout))
 		}
-		return c.run(c.Bin, args...)
+		err := c.run(c.Bin, args...)
+		if err == nil {
+			return nil
+		}
+		// timeout 降级：如果带 timeout 失败，去掉 timeout 再试一次。
+		// 原因：部分旧 kernel/ipset 版本（如 ipset v6.29 + deepin 内核）
+		//   hash:ip 集合不支持 --timeout 参数，会返回 "Kernel error -1"。
+		//   降级后条目不会被内核自动过期，但 TTL Sweep（60s 周期）
+		//   会从 ipset 清除过期条目，双重冗余保障。
+		if wantTimeout {
+			retryArgs := []string{"add", e.Set, e.IP, "-exist"}
+			if retryErr := c.run(c.Bin, retryArgs...); retryErr == nil {
+				// timeout 不支持，但不带 timeout 成功了——降级成功。
+				// 返回 nil 让上层认为 add 成功（条目已在 ipset 中）。
+				return nil
+			}
+		}
+		return err
 	case OpDel:
 		// -exist: 条目不存在时静默返回 0，避免与 kernel timeout 竞态
 		// （内核已删除条目但内存 blocked map 还在 → Sweep Unblock 重试失败）

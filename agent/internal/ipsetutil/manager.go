@@ -263,13 +263,32 @@ func (m *Manager) blockInternal(ip string) (accepted bool, err error) {
 		return false, ErrAlreadyBlocked
 	}
 
-	if err := m.applyWithRetry([]Entry{{Set: SetBlacklist, IP: ip, Op: OpAdd, Timeout: timeout}}); err != nil {
+	entries := []Entry{{Set: SetBlacklist, IP: ip, Op: OpAdd, Timeout: timeout}}
+	err = m.applyWithRetry(entries)
+	if err != nil {
 		// 如果 ipset 报 "already exists"，视为幂等成功
 		if isAlreadyExistsError(err) {
 			m.mu.Lock()
 			m.blocked[ip] = struct{}{}
 			m.mu.Unlock()
 			return false, nil // 不视为错误，不触发 warn
+		}
+
+		// timeout 降级：带 timeout 失败且配置了 timeout → 去掉 timeout 再试一次。
+		// 原因：部分旧 kernel/ipset 版本不支持 hash:ip 集合的 --timeout 参数，
+		//   会返回 "Kernel error -1"。降级后条目不会被内核自动过期，
+		//   但 TTL Sweep（60s 周期）会从 ipset 清除过期条目，双重冗余。
+		//
+		// 注意：LinuxClient.applyOne 里也有一层 timeout 降级（更快的单次降级），
+		//   这里作为 Manager 层兜底——确保任何 client 实现都能正确处理。
+		if timeout > 0 {
+			retryEntries := []Entry{{Set: SetBlacklist, IP: ip, Op: OpAdd}}
+			if retryErr := m.applyWithRetry(retryEntries); retryErr == nil {
+				m.mu.Lock()
+				m.blocked[ip] = struct{}{}
+				m.mu.Unlock()
+				return true, nil
+			}
 		}
 		return false, err
 	}
